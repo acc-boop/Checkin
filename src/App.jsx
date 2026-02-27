@@ -64,25 +64,6 @@ function tzLabel(tz) {
 function genId() { return Math.random().toString(36).slice(2, 8); }
 
 // ─── Streak / Status helpers ──────────────────────────────
-function getDailyStreak(uid, dci, pto) {
-  pto = pto || {};
-  let s = 0; const d = new Date(TODAY);
-  const todaySubmitted = !!dci[`${uid}:${ds(d)}`];
-  const todayPto = !!pto[`${uid}:${ds(d)}`];
-  if (todaySubmitted || todayPto) { if (todaySubmitted) s++; }
-  d.setDate(d.getDate() - 1);
-  while (true) { if (isWeekend(d)) { d.setDate(d.getDate() - 1); continue; } if (pto[`${uid}:${ds(d)}`]) { d.setDate(d.getDate() - 1); continue; } if (dci[`${uid}:${ds(d)}`]) { s++; d.setDate(d.getDate() - 1); } else break; }
-  if (!todaySubmitted && !todayPto && s === 0 && !isWeekend(TODAY)) {
-    const y = new Date(TODAY); y.setDate(y.getDate() - 1);
-    while (isWeekend(y) || pto[`${uid}:${ds(y)}`]) y.setDate(y.getDate() - 1);
-    if (dci[`${uid}:${ds(y)}`]) {
-      let gs = 1; const g = new Date(y); g.setDate(g.getDate() - 1);
-      while (true) { if (isWeekend(g)) { g.setDate(g.getDate() - 1); continue; } if (pto[`${uid}:${ds(g)}`]) { g.setDate(g.getDate() - 1); continue; } if (dci[`${uid}:${ds(g)}`]) { gs++; g.setDate(g.getDate() - 1); } else break; }
-      return gs;
-    }
-  }
-  return s;
-}
 function getWkStreak(uid, wci) { let s = 0; for (let i = CW; i >= 0; i--) { if (wci[`${uid}:${WEEKS[i].id}`]) s++; else break; } return s; }
 function resolveWeek(uid, wi, wci) {
   const c = wci[`${uid}:${WEEKS[wi]?.id}`];
@@ -505,7 +486,6 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
     setSaved(true); setTimeout(() => setSaved(false), 2500);
   };
 
-  const dailyStreak = getDailyStreak(uid, dci, pto);
   const dailyCmt = cmt[`d:${uid}:${selDate}`];
   const stuckThread = stuckRes[`${uid}:${selDate}`];
   const isPto = !!pto[`${uid}:${selDate}`];
@@ -518,16 +498,10 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
 
   return (
     <>
-      <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
-        <div style={{ flex: 1, background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "12px 16px" }}>
-          <div style={{ fontSize: 11, color: "#9ca3af", fontWeight: 500, textTransform: "uppercase", letterSpacing: 0.8 }}>{selDate === ds(TODAY) ? "Today" : dayLabel(selDate)}</div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: isPto ? "#6366f1" : existing ? "#10b981" : "#f59e0b", marginTop: 2 }}>{isPto ? "\u2708 PTO" : existing ? "\u2713 Submitted" : "Pending"}</div>
-          {existing?.at && <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>{fmtTime(existing.at, tz)}</div>}
-        </div>
-        <div style={{ flex: 1, background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "12px 16px" }}>
-          <div style={{ fontSize: 11, color: "#9ca3af", fontWeight: 500, textTransform: "uppercase", letterSpacing: 0.8 }}>Weekday streak</div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: dailyStreak >= 5 ? "#10b981" : "#111", marginTop: 2 }}>{dailyStreak >= 5 ? "\ud83d\udd25 " : ""}{dailyStreak}d</div>
-        </div>
+      <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "12px 16px", marginBottom: 16 }}>
+        <div style={{ fontSize: 11, color: "#9ca3af", fontWeight: 500, textTransform: "uppercase", letterSpacing: 0.8 }}>{selDate === ds(TODAY) ? "Today" : dayLabel(selDate)}</div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: isPto ? "#6366f1" : existing ? "#10b981" : "#f59e0b", marginTop: 2 }}>{isPto ? "\u2708 PTO" : existing ? "\u2713 Submitted" : "Pending"}</div>
+        {existing?.at && <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>{fmtTime(existing.at, tz)}</div>}
       </div>
 
       <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
