@@ -54,6 +54,18 @@ function fmtTime(iso, tz) {
   try { return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: tz || BROWSER_TZ, timeZoneName: "short" }); }
   catch { return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }); }
 }
+function isLate(dateStr, isoAt, tz) {
+  if (!dateStr || !isoAt) return false;
+  try { return new Date(isoAt).toLocaleDateString("en-CA", { timeZone: tz || BROWSER_TZ }) > dateStr; }
+  catch { return false; }
+}
+function fmtSubmission(dateStr, isoAt, tz) {
+  if (!isoAt) return "";
+  const time = fmtTime(isoAt, tz);
+  if (!isLate(dateStr, isoAt, tz)) return time;
+  try { const d = new Date(isoAt).toLocaleDateString("en-US", { weekday: "short", timeZone: tz || BROWSER_TZ }); return `${d} ${time}`; }
+  catch { return time; }
+}
 function getTzList() { try { return Intl.supportedValuesOf("timeZone"); } catch { return [BROWSER_TZ]; } }
 function tzLabel(tz) {
   try { const p = new Intl.DateTimeFormat("en-US", { timeZone: tz, timeZoneName: "short" }).formatToParts(new Date()); const s = p.find(x => x.type === "timeZoneName")?.value || ""; return `(${s}) ${tz.replace(/_/g, " ")}`; }
@@ -88,6 +100,7 @@ const Spark = ({ data, w = 60, h = 20 }) => {
 };
 const StuckBadge = () => <span style={{ background: "#fef2f2", color: "#dc2626", fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 4 }}>{"\ud83d\udea8"} STUCK</span>;
 const EditedBadge = () => <span style={{ fontSize: 10, color: "#9ca3af", fontStyle: "italic" }}>edited</span>;
+const LateBadge = () => <span style={{ background: "#fffbeb", color: "#b45309", fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 4 }}>LATE</span>;
 const SideLabel = ({ children }) => <div style={{ fontSize: 10, color: "#9ca3af", padding: "14px 20px 6px", textTransform: "uppercase", letterSpacing: 1, fontWeight: 500 }}>{children}</div>;
 const SideBtn = ({ active, onClick, children }) => <button onClick={onClick} style={{ width: "100%", padding: "7px 20px", border: "none", cursor: "pointer", fontFamily: "'DM Sans',sans-serif", background: active ? "#f3f4f6" : "transparent", color: active ? "#111" : "#6b7280", fontSize: 13, fontWeight: active ? 500 : 400, textAlign: "left" }}>{children}</button>;
 
@@ -500,8 +513,11 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
     <>
       <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "12px 16px", marginBottom: 16 }}>
         <div style={{ fontSize: 11, color: "#9ca3af", fontWeight: 500, textTransform: "uppercase", letterSpacing: 0.8 }}>{selDate === ds(TODAY) ? "Today" : dayLabel(selDate)}</div>
-        <div style={{ fontSize: 18, fontWeight: 700, color: isPto ? "#6366f1" : existing ? "#10b981" : "#f59e0b", marginTop: 2 }}>{isPto ? "\u2708 PTO" : existing ? "\u2713 Submitted" : "Pending"}</div>
-        {existing?.at && <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>{fmtTime(existing.at, tz)}</div>}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
+          <span style={{ fontSize: 18, fontWeight: 700, color: isPto ? "#6366f1" : existing ? "#10b981" : "#f59e0b" }}>{isPto ? "\u2708 PTO" : existing ? "\u2713 Submitted" : "Pending"}</span>
+          {existing && isLate(selDate, existing.at, tz) && <LateBadge />}
+        </div>
+        {existing?.at && <div style={{ fontSize: 11, color: isLate(selDate, existing.at, tz) ? "#b45309" : "#9ca3af", marginTop: 2 }}>{fmtSubmission(selDate, existing.at, tz)}</div>}
       </div>
 
       <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
@@ -563,7 +579,7 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
             <div style={{ textAlign: "left" }}><div style={{ fontSize: 14, fontWeight: 600, color: stuck ? "#dc2626" : "#6b7280" }}>I'm STUCK and need help</div></div>
           </button>
           <button onClick={submit} disabled={!worked.trim()} style={{ width: "100%", padding: "15px", borderRadius: 12, border: "none", background: !worked.trim() ? "#e5e7eb" : saved ? "#10b981" : "#111", color: !worked.trim() ? "#9ca3af" : "#fff", fontSize: 16, fontWeight: 700, cursor: worked.trim() ? "pointer" : "default", fontFamily: "inherit" }}>
-            {saved ? "\u2713 Saved!" : existing ? "Update" : "Submit daily update"}
+            {saved ? "\u2713 Saved!" : existing ? "Update" : selDate !== ds(TODAY) ? `Submit for ${dayLabel(selDate)}` : "Submit daily update"}
           </button>
         </>)}
 
@@ -587,8 +603,8 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
         {recentDays.map(d => (
           <div key={d.date} style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "14px 16px", marginBottom: 8 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-              <div style={{ display: "flex", gap: 6, alignItems: "center" }}><span style={{ fontSize: 13, fontWeight: 600 }}>{dayLabel(d.date)}</span>{d.edited && <EditedBadge />}</div>
-              <span style={{ fontSize: 11, color: "#9ca3af" }}>{daysAgo(d.date)}</span>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}><span style={{ fontSize: 13, fontWeight: 600 }}>{dayLabel(d.date)}</span>{d.edited && <EditedBadge />}{isLate(d.date, d.at, tz) && <LateBadge />}</div>
+              <span style={{ fontSize: 11, color: isLate(d.date, d.at, tz) ? "#b45309" : "#9ca3af" }}>{fmtSubmission(d.date, d.at, tz)}</span>
             </div>
             <div style={{ fontSize: 13, color: "#374151", lineHeight: 1.5, whiteSpace: "pre-line" }}>{d.worked}</div>
             {d.didnt && <div style={{ fontSize: 12, color: "#ef4444", marginTop: 4, whiteSpace: "pre-line" }}>{"\u21b3"} {d.didnt}</div>}
@@ -925,7 +941,10 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
                         {d.entry?.edited && <EditedBadge />}
                         {d.entry?.stuck && <StuckBadge />}
                       </div>
-                      <span style={{ fontSize: 11, color: d.entry ? "#10b981" : "#d1d5db" }}>{d.entry ? fmtTime(d.entry.at, getTz(drillData.m, comp)) : "\u2014"}</span>
+                      <span style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                        {d.entry && isLate(d.date, d.entry.at, getTz(drillData.m, comp)) && <LateBadge />}
+                        <span style={{ fontSize: 11, color: d.entry ? (isLate(d.date, d.entry.at, getTz(drillData.m, comp)) ? "#b45309" : "#10b981") : "#d1d5db" }}>{d.entry ? fmtSubmission(d.date, d.entry.at, getTz(drillData.m, comp)) : "\u2014"}</span>
+                      </span>
                     </div>
                     {d.entry ? (
                       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -1349,9 +1368,10 @@ function DailyCardCeo({ entry: e, date, tz, onDrill, saveCmt, nudge, copied }) {
         ) : (
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
             {e.daily.edited && <EditedBadge />}
+            {isLate(date, e.daily.at, tz) && <LateBadge />}
             {e.daily.stuck && !resolved && <StuckBadge />}
             {e.daily.stuck && resolved && <span style={{ fontSize: 11, color: "#10b981", fontWeight: 500 }}>{"\u2713"} Responded</span>}
-            <span style={{ fontSize: 11, color: "#9ca3af" }}>{fmtTime(e.daily.at, tz)}</span>
+            <span style={{ fontSize: 11, color: isLate(date, e.daily.at, tz) ? "#b45309" : "#9ca3af" }}>{fmtSubmission(date, e.daily.at, tz)}</span>
           </div>
         )}
       </div>
