@@ -258,7 +258,7 @@ function CeoSetup({ onComplete }) {
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&display=swap" rel="stylesheet" />
       <div style={{ width: "100%", maxWidth: 420, padding: 20 }}>
         <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: -0.5, marginBottom: 4 }}>{"\u25ce"} Accountable</div>
+          <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: -0.5, marginBottom: 4 }}>{"\u25ce"} Checkin</div>
           <div style={{ fontSize: 14, color: "#6b7280" }}>Set up your account</div>
         </div>
 
@@ -332,7 +332,7 @@ function LoginScreen({ cfg, onLogin }) {
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&display=swap" rel="stylesheet" />
       <div style={{ width: "100%", maxWidth: 380, padding: 20 }}>
         <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: -0.5, marginBottom: 4 }}>{"\u25ce"} Accountable</div>
+          <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: -0.5, marginBottom: 4 }}>{"\u25ce"} Checkin</div>
           <div style={{ fontSize: 14, color: "#6b7280" }}>Sign in</div>
         </div>
         <div style={{ background: "#fff", borderRadius: 16, border: "1px solid #e5e7eb", padding: "28px 24px" }}>
@@ -395,7 +395,7 @@ function MemberDash({ uid, m, getTeam, wci, dci, cmt, kpiP, stuckRes, seen, pto,
     <div style={{ minHeight: "100vh", fontFamily: "'DM Sans',-apple-system,sans-serif", background: "#fafafa", display: "flex", flexDirection: "column" }}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&display=swap" rel="stylesheet" />
       <div style={{ background: "#fff", borderBottom: "1px solid #e5e7eb", padding: "10px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={{ fontSize: 18 }}>{"\u25ce"}</span><span style={{ fontSize: 15, fontWeight: 700, letterSpacing: -0.3 }}>Accountable</span></div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={{ fontSize: 18 }}>{"\u25ce"}</span><span style={{ fontSize: 15, fontWeight: 700, letterSpacing: -0.3 }}>Checkin</span></div>
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
           <button onClick={() => setShowPwChange(!showPwChange)} style={{ background: "none", border: "none", fontSize: 12, color: "#9ca3af", cursor: "pointer", fontFamily: "inherit" }}>{"\u2699"} Password</button>
           <button onClick={logout} style={{ background: "none", border: "none", fontSize: 12, color: "#9ca3af", cursor: "pointer", fontFamily: "inherit" }}>Sign out</button>
@@ -804,7 +804,7 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
       {/* Sidebar */}
       <div style={{ width: 200, background: "#fff", borderRight: "1px solid #e5e7eb", padding: "20px 0", flexShrink: 0, display: "flex", flexDirection: "column" }}>
         <div style={{ padding: "0 20px", marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 18 }}>{"\u25ce"}</span><span style={{ fontSize: 16, fontWeight: 700, letterSpacing: -0.3 }}>Accountable</span>
+          <span style={{ fontSize: 18 }}>{"\u25ce"}</span><span style={{ fontSize: 16, fontWeight: 700, letterSpacing: -0.3 }}>Checkin</span>
         </div>
 
         {/* Company switcher */}
@@ -1070,7 +1070,7 @@ function AdminPanel({ cfg, saveCfg, compId, comp, onClose }) {
   };
 
   const copyCredentials = (member) => {
-    const text = `Accountable Login\nEmail: ${member.email}\nPassword: ${member.pw}\n\nSign in and submit your daily updates.`;
+    const text = `Checkin Login\nEmail: ${member.email}\nPassword: ${member.pw}\n\nSign in and submit your daily updates.`;
     navigator.clipboard?.writeText(text);
     setCopiedCreds(member.id);
     setTimeout(() => setCopiedCreds(null), 2000);
