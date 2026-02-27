@@ -115,7 +115,7 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try { const r = await window.storage.get(CFG_KEY); if (r?.value) setCfg(JSON.parse(r.value)); } catch {}
-      try { const r = await window.storage.get(SESSION_KEY); if (r?.value) setSession(JSON.parse(r.value)); } catch {}
+      try { const s = localStorage.getItem(SESSION_KEY); if (s) setSession(JSON.parse(s)); } catch {}
       setLoaded(true);
     })();
   }, []);
@@ -164,7 +164,7 @@ export default function App() {
   // ─── Session management ───
   const login = useCallback(async (sess) => {
     setSession(sess);
-    try { if (sess) await window.storage.set(SESSION_KEY, JSON.stringify(sess)); else await window.storage.delete(SESSION_KEY); } catch {}
+    try { if (sess) localStorage.setItem(SESSION_KEY, JSON.stringify(sess)); else localStorage.removeItem(SESSION_KEY); } catch {}
   }, []);
 
   const logout = useCallback(() => login(null), [login]);
