@@ -714,6 +714,8 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
   const [drillPerson, setDrillPerson] = useState(null);
   const [copied, setCopied] = useState(null);
   const [showAdmin, setShowAdmin] = useState(false);
+  const [viewAsMember, setViewAsMember] = useState(null);
+  const [viewAsOpen, setViewAsOpen] = useState(false);
 
   // Check if company has any members
   const hasMembers = allMembers.length > 0;
@@ -797,6 +799,27 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
     />;
   }
 
+  // ─── View as member ───
+  if (viewAsMember) {
+    return (
+      <div style={{ fontFamily: "'DM Sans',-apple-system,sans-serif" }}>
+        <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&display=swap" rel="stylesheet" />
+        <div style={{ background: "#111", color: "#fff", padding: "8px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 11, background: "rgba(255,255,255,0.15)", padding: "2px 8px", borderRadius: 4, fontWeight: 600 }}>PREVIEW</span>
+            <span>Viewing as <b>{viewAsMember.name}</b></span>
+          </div>
+          <button onClick={() => setViewAsMember(null)} style={{ background: "#fff", color: "#111", border: "none", padding: "5px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Exit preview</button>
+        </div>
+        <MemberDash
+          uid={viewAsMember.id} m={viewAsMember} getTeam={getTeam}
+          wci={wci} dci={dci} cmt={cmt} kpiP={kpiP} stuckRes={stuckRes} seen={seen} pto={pto}
+          save={save} logout={() => setViewAsMember(null)} cfg={cfg} saveCfg={saveCfg} compId={compId}
+        />
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: "flex", minHeight: "100vh", fontFamily: "'DM Sans',-apple-system,sans-serif", background: "#fafafa", color: "#111" }}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&display=swap" rel="stylesheet" />
@@ -831,6 +854,27 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
         {stuckCount > 0 && view !== "daily" && <div style={{ padding: "10px 20px", borderTop: "1px solid #f3f4f6", fontSize: 12, color: "#dc2626", fontWeight: 600, cursor: "pointer" }} onClick={() => { setView("daily"); setDrillPerson(null); }}>{"\ud83d\udea8"} {stuckCount} stuck</div>}
         <div style={{ padding: "6px 12px", borderTop: "1px solid #f3f4f6" }}>
           <button onClick={() => setShowAdmin(true)} style={{ width: "100%", padding: "7px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", fontSize: 12, cursor: "pointer", fontFamily: "inherit", color: "#6b7280", marginBottom: 4 }}>{"\u2699"} Manage</button>
+          <div style={{ position: "relative", marginBottom: 4 }}>
+            <button onClick={() => setViewAsOpen(!viewAsOpen)} style={{ width: "100%", padding: "7px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", fontSize: 12, cursor: "pointer", fontFamily: "inherit", color: "#6b7280" }}>{"\ud83d\udc41"} View as…</button>
+            {viewAsOpen && (
+              <div style={{ position: "absolute", bottom: "100%", left: 0, right: 0, marginBottom: 4, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, boxShadow: "0 4px 16px rgba(0,0,0,0.12)", maxHeight: 240, overflowY: "auto", zIndex: 100 }}>
+                <div style={{ padding: "8px 12px", fontSize: 11, fontWeight: 600, color: "#9ca3af", borderBottom: "1px solid #f3f4f6" }}>Select team member</div>
+                {Object.entries(TEAMS).map(([tid, team]) => (
+                  <div key={tid}>
+                    <div style={{ padding: "6px 12px", fontSize: 10, fontWeight: 600, color: "#9ca3af", textTransform: "uppercase", letterSpacing: 0.5 }}>{team.name}</div>
+                    {team.members.map(m => (
+                      <button key={m.id} onClick={() => { setViewAsMember(m); setViewAsOpen(false); }}
+                        style={{ width: "100%", padding: "8px 12px", border: "none", background: "none", textAlign: "left", cursor: "pointer", fontFamily: "inherit", fontSize: 12, color: "#374151", display: "flex", alignItems: "center", gap: 8 }}
+                        onMouseEnter={e => e.currentTarget.style.background = "#f3f4f6"} onMouseLeave={e => e.currentTarget.style.background = "none"}>
+                        <Av i={m.av} s={22} /><div><div style={{ fontWeight: 500 }}>{m.name}</div><div style={{ fontSize: 10, color: "#9ca3af" }}>{m.role}</div></div>
+                      </button>
+                    ))}
+                  </div>
+                ))}
+                {allMembers.length === 0 && <div style={{ padding: "12px", fontSize: 12, color: "#9ca3af", textAlign: "center" }}>No members yet</div>}
+              </div>
+            )}
+          </div>
           <button onClick={logout} style={{ width: "100%", padding: "7px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", fontSize: 12, cursor: "pointer", fontFamily: "inherit", color: "#6b7280" }}>Sign out</button>
         </div>
       </div>
