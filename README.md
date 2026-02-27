@@ -1,4 +1,4 @@
-# ◎ Accountable — Production Deployment Guide
+# ◎ Checkin — Production Deployment Guide
 
 ## Architecture
 
@@ -16,7 +16,7 @@ Browser → Render (static site + Express) → Supabase (PostgreSQL)
 ## Step 1 — Supabase Setup
 
 1. Go to [supabase.com](https://supabase.com) and create a **new project**
-2. Pick a name (e.g. `accountable`), set a database password, choose a region close to your users
+2. Pick a name (e.g. `checkin`), set a database password, choose a region close to your users
 3. Wait for the project to finish provisioning (~2 min)
 
 ### Create the database table
@@ -36,16 +36,16 @@ Browser → Render (static site + Express) → Supabase (PostgreSQL)
 
 ## Step 2 — GitHub Setup
 
-1. Create a new repository on [github.com](https://github.com) (e.g. `accountable`)
+1. Create a new repository on [github.com](https://github.com) (e.g. `checkin`)
 2. Push this project:
 
 ```bash
-cd accountable
+cd checkin
 git init
 git add .
 git commit -m "Initial commit"
 git branch -M main
-git remote add origin https://github.com/YOUR_USERNAME/accountable.git
+git remote add origin https://github.com/YOUR_USERNAME/checkin.git
 git push -u origin main
 ```
 
@@ -54,9 +54,9 @@ git push -u origin main
 ## Step 3 — Render Setup
 
 1. Go to [render.com](https://render.com) → **New** → **Web Service**
-2. Connect your GitHub repo (`accountable`)
+2. Connect your GitHub repo (`checkin`)
 3. Configure:
-   - **Name**: `accountable`
+   - **Name**: `checkin`
    - **Runtime**: Node
    - **Build Command**: `npm install && npm run build`
    - **Start Command**: `npm start`
@@ -65,7 +65,7 @@ git push -u origin main
    - `VITE_SUPABASE_ANON_KEY` → your Supabase anon key
 5. Click **Create Web Service**
 
-Render will build and deploy. Your app will be live at `https://accountable-xxxx.onrender.com`.
+Render will build and deploy. Your app will be live at `https://checkin-xxxx.onrender.com`.
 
 > **Important**: The `VITE_` prefix is required — Vite embeds these at build time.
 

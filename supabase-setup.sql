@@ -1,5 +1,5 @@
 -- ============================================================
--- Accountable — Supabase Setup
+-- checkin — Supabase Setup
 -- Run this in: Supabase Dashboard → SQL Editor → New Query
 -- ============================================================
 

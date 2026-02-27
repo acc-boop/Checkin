@@ -17,5 +17,5 @@ app.get('*', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Accountable running on port ${PORT}`);
+  console.log(`Checkin running on port ${PORT}`);
 });
