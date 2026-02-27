@@ -529,7 +529,7 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save }) {
         ) : (<>
           <div style={{ marginBottom: 16 }}>
             <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 5, color: "#10b981" }}>1. What worked today? <span style={{ fontWeight: 400, color: "#6b7280" }}>Include numbers.</span></label>
-            <textarea value={worked} onChange={e => setWorked(e.target.value)} rows={3} placeholder="2 Reels posted, 4.2K views. 8 DMs, 3 replies. 6 sign-ups."
+            <textarea value={worked} onChange={e => setWorked(e.target.value)} rows={3} placeholder=""
               style={{ width: "100%", padding: "11px 14px", borderRadius: 10, border: "1.5px solid #e5e7eb", fontSize: 14, fontFamily: "inherit", outline: "none", resize: "vertical", boxSizing: "border-box", lineHeight: 1.5 }}
               onFocus={e => e.target.style.borderColor = "#10b981"} onBlur={e => e.target.style.borderColor = "#e5e7eb"} />
           </div>
@@ -537,13 +537,13 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save }) {
             <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 5, color: "#ef4444" }}>
               2. What didn't work, and what are you changing? {stuck && <span style={{ color: "#ef4444" }}>*</span>}
             </label>
-            <textarea value={didnt} onChange={e => setDidnt(e.target.value)} rows={2} placeholder="Cold DMs under 5K \u2192 0 replies. Shifting to 10K-50K."
+            <textarea value={didnt} onChange={e => setDidnt(e.target.value)} rows={2} placeholder=""
               style={{ width: "100%", padding: "11px 14px", borderRadius: 10, border: `1.5px solid ${stuck && !didnt.trim() ? "#ef4444" : "#e5e7eb"}`, fontSize: 14, fontFamily: "inherit", outline: "none", resize: "vertical", boxSizing: "border-box", lineHeight: 1.5 }} />
             {stuck && !didnt.trim() && <div style={{ fontSize: 12, color: "#ef4444", marginTop: 4 }}>Required when stuck — what are you changing?</div>}
           </div>
           <div style={{ marginBottom: 16 }}>
             <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 5, color: "#6366f1" }}>3. Plan for tomorrow — stuck on anything?</label>
-            <textarea value={plan} onChange={e => setPlan(e.target.value)} rows={2} placeholder="Batch 3 Reels. Follow up 3 replies."
+            <textarea value={plan} onChange={e => setPlan(e.target.value)} rows={2} placeholder=""
               style={{ width: "100%", padding: "11px 14px", borderRadius: 10, border: "1.5px solid #e5e7eb", fontSize: 14, fontFamily: "inherit", outline: "none", resize: "vertical", boxSizing: "border-box", lineHeight: 1.5 }} />
           </div>
           <button onClick={() => setStuck(!stuck)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderRadius: 10, border: "2px solid", borderColor: stuck ? "#ef4444" : "#e5e7eb", background: stuck ? "#fef2f2" : "#fff", cursor: "pointer", fontFamily: "inherit", width: "100%", marginBottom: 20 }}>
@@ -683,14 +683,14 @@ function WeeklyMember({ uid, m, wci, dci, cmt, kpiP, pto, save }) {
                       </button>
                     ))}
                   </div>
-                  <input value={kpiStates[ki]?.actual || ""} onChange={e => { const n = [...kpiStates]; n[ki] = { ...n[ki], actual: e.target.value }; setKpiStates(n); }} disabled={locked} placeholder="Actual result\u2026"
+                  <input value={kpiStates[ki]?.actual || ""} onChange={e => { const n = [...kpiStates]; n[ki] = { ...n[ki], actual: e.target.value }; setKpiStates(n); }} disabled={locked} placeholder=""
                     style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1.5px solid #e5e7eb", fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }} />
                 </div>
               ))}
             </div>
             <div style={{ marginBottom: 22 }}>
               <label style={{ fontSize: 13, fontWeight: 500, display: "block", marginBottom: 5 }}>Challenges? <span style={{ fontWeight: 400, color: "#9ca3af" }}>(optional)</span></label>
-              <textarea value={challenge} onChange={e => setChallenge(e.target.value)} disabled={locked} placeholder="What got in the way?" rows={2} style={{ width: "100%", padding: "11px 14px", borderRadius: 10, border: "1.5px solid #e5e7eb", fontSize: 14, fontFamily: "inherit", outline: "none", resize: "vertical", boxSizing: "border-box" }} />
+              <textarea value={challenge} onChange={e => setChallenge(e.target.value)} disabled={locked} placeholder="" rows={2} style={{ width: "100%", padding: "11px 14px", borderRadius: 10, border: "1.5px solid #e5e7eb", fontSize: 14, fontFamily: "inherit", outline: "none", resize: "vertical", boxSizing: "border-box" }} />
             </div>
             <button onClick={submit} disabled={!allKpiSet || locked} style={{ width: "100%", padding: "15px", borderRadius: 12, border: "none", background: !allKpiSet || locked ? "#e5e7eb" : saved ? "#10b981" : "#111", color: !allKpiSet || locked ? "#9ca3af" : "#fff", fontSize: 16, fontWeight: 700, cursor: allKpiSet && !locked ? "pointer" : "default", fontFamily: "inherit" }}>
               {saved ? "\u2713 Saved!" : existing ? "Update" : "Submit"}
