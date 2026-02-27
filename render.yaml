@@ -1,0 +1,15 @@
+# render.yaml — Render Blueprint
+# https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: accountable
+    runtime: node
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_ANON_KEY
+        sync: false
+      - key: NODE_VERSION
+        value: 20
