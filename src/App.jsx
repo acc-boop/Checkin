@@ -1009,7 +1009,7 @@ function AdminPanel({ cfg, saveCfg, compId, comp, onClose }) {
   const [newTeamName, setNewTeamName] = useState("");
   const [addingMemberTo, setAddingMemberTo] = useState(null); // teamId
   const [newMember, setNewMember] = useState({ name: "", email: "", role: "", pw: "" });
-  const [kpiInput, setKpiInput] = useState("");
+  const [kpiLines, setKpiLines] = useState([""]);
   const [newCompName, setNewCompName] = useState("");
   const [copiedCreds, setCopiedCreds] = useState(null);
 
@@ -1040,7 +1040,7 @@ function AdminPanel({ cfg, saveCfg, compId, comp, onClose }) {
     if (cfg.users[email] || email === cfg.ceoEmail) { alert("Email already in use."); return; }
     const mid = genId();
     
-    const kpis = kpiInput.split("\n").map(s => s.trim()).filter(Boolean);
+    const kpis = kpiLines.map(s => s.trim()).filter(Boolean);
     const av = newMember.name.trim().split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
     const member = { id: mid, name: newMember.name.trim(), email, pw: newMember.pw || "change-me", role: newMember.role.trim() || "Team member", av, kpis };
     const team = comp.teams[teamId];
@@ -1052,7 +1052,7 @@ function AdminPanel({ cfg, saveCfg, compId, comp, onClose }) {
     };
     await saveCfg(newCfg);
     setNewMember({ name: "", email: "", role: "", pw: "" });
-    setKpiInput("");
+    setKpiLines([""]);
     setAddingMemberTo(null);
   };
 
@@ -1148,8 +1148,24 @@ function AdminPanel({ cfg, saveCfg, compId, comp, onClose }) {
                         style={{ padding: "9px 12px", borderRadius: 8, border: "1.5px solid #e5e7eb", fontSize: 13, fontFamily: "inherit", outline: "none" }} />
                       <input value={newMember.pw} onChange={e => setNewMember({ ...newMember, pw: e.target.value })} placeholder="Initial password (default: change-me)"
                         style={{ padding: "9px 12px", borderRadius: 8, border: "1.5px solid #e5e7eb", fontSize: 13, fontFamily: "inherit", outline: "none" }} />
-                      <textarea value={kpiInput} onChange={e => setKpiInput(e.target.value)} placeholder={"Weekly KPIs (one per line)\ne.g. Close $45K in new ARR\nRun 3 pipeline reviews"} rows={3}
-                        style={{ padding: "9px 12px", borderRadius: 8, border: "1.5px solid #e5e7eb", fontSize: 13, fontFamily: "inherit", outline: "none", resize: "vertical" }} />
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "#6b7280", marginBottom: 6 }}>Weekly KPIs</div>
+                        {kpiLines.map((line, ki) => (
+                          <div key={ki} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                            <span style={{ fontSize: 12, color: "#9ca3af", minWidth: 18, textAlign: "right" }}>{ki + 1}.</span>
+                            <input value={line} onChange={e => { const n = [...kpiLines]; n[ki] = e.target.value; setKpiLines(n); }}
+                              onKeyDown={e => { if (e.key === "Enter" && line.trim()) { e.preventDefault(); setKpiLines([...kpiLines, ""]); } }}
+                              placeholder={ki === 0 ? "e.g. Close $45K in new ARR" : ki === 1 ? "e.g. Run 3 pipeline reviews" : "Add KPI…"}
+                              style={{ flex: 1, padding: "9px 12px", borderRadius: 8, border: "1.5px solid #e5e7eb", fontSize: 13, fontFamily: "inherit", outline: "none" }} />
+                            {kpiLines.length > 1 && (
+                              <button onClick={() => setKpiLines(kpiLines.filter((_, i) => i !== ki))}
+                                style={{ width: 28, height: 28, borderRadius: 6, border: "1px solid #e5e7eb", background: "#fff", color: "#9ca3af", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0, lineHeight: 1 }}>×</button>
+                            )}
+                          </div>
+                        ))}
+                        <button onClick={() => setKpiLines([...kpiLines, ""])}
+                          style={{ fontSize: 12, color: "#6b7280", background: "none", border: "none", cursor: "pointer", padding: "4px 0", fontFamily: "inherit" }}>+ Add another KPI</button>
+                      </div>
                       <div style={{ display: "flex", gap: 8 }}>
                         <button onClick={() => setAddingMemberTo(null)} style={{ flex: 1, padding: "9px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", color: "#6b7280", fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
                         <button onClick={() => addMember(tid)} disabled={!newMember.name.trim() || !newMember.email.trim()} style={{ flex: 2, padding: "9px", borderRadius: 8, border: "none", background: newMember.name.trim() && newMember.email.trim() ? "#111" : "#e5e7eb", color: newMember.name.trim() && newMember.email.trim() ? "#fff" : "#9ca3af", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
