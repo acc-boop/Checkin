@@ -101,18 +101,25 @@ async function checkPw(input, stored) {
 }
 
 // ─── Streak / Status helpers ──────────────────────────────
-function getWkStreak(uid, wci) { const cw = getCW(); let s = 0; for (let i = cw; i >= 0; i--) { if (wci[`${uid}:${WEEKS[i].id}`]) s++; else break; } return s; }
+function getWkStreak(uid, wci) { const cw = getCW(); let s = 0; for (let i = cw; i >= 0; i--) { const r = resolveWeek(uid, i, wci); if (r === "green") s++; else break; } return s; }
 function resolveWeek(uid, wi, wci) {
   const c = wci[`${uid}:${WEEKS[wi]?.id}`];
-  if (c?.kpis) { const done = c.kpis.every(k => k.status); if (!done) return null; return c.kpis.every(k => k.status === "green") ? "green" : "red"; }
+  if (c?.kpis) {
+    const scored = c.kpis.filter(k => k.status);
+    if (scored.length === 0) return null;
+    return scored.every(k => k.status === "green") ? "green" : "red";
+  }
   if (c?.status) return c.status;
   if (isLocked(wi)) return "auto-red"; return null;
 }
 function weekDailySummary(uid, wi, dci, pto) {
   pto = pto || {};
   const days = weekdaysInWeek(wi); let count = 0, stuck = 0, ptoCount = 0;
+  const today = ds(getToday());
+  const elapsed = days.filter(d => d <= today).length;
   days.forEach(d => { if (pto[`${uid}:${d}`]) { ptoCount++; return; } const e = dci[`${uid}:${d}`]; if (e) { count++; if (e.stuck) stuck++; } });
-  return { count, stuck, days, ptoCount };
+  const expected = Math.max(0, elapsed - ptoCount);
+  return { count, stuck, days, ptoCount, expected };
 }
 
 // ─── Shared UI ────────────────────────────────────────────
@@ -178,17 +185,18 @@ export default function App() {
   }, []);
 
   // ─── Save company operational data ───
-  const saveData = useCallback(async (nw, nd, nc, nk, ns, nseen, npto) => {
+  const saveData = useCallback(async (updates = {}) => {
     if (!session?.compId) return;
     const cd = compDataRef.current;
-    const a = nw !== undefined ? nw : cd.wci || {};
-    const b = nd !== undefined ? nd : cd.dci || {};
-    const c = nc !== undefined ? nc : cd.cmt || {};
-    const d = nk !== undefined ? nk : cd.kpiP || {};
-    const e = ns !== undefined ? ns : cd.sr || {};
-    const f = nseen !== undefined ? nseen : cd.seen || {};
-    const g = npto !== undefined ? npto : cd.pto || {};
-    const newData = { wci: a, dci: b, cmt: c, kpiP: d, sr: e, seen: f, pto: g };
+    const newData = {
+      wci: updates.wci !== undefined ? updates.wci : cd.wci || {},
+      dci: updates.dci !== undefined ? updates.dci : cd.dci || {},
+      cmt: updates.cmt !== undefined ? updates.cmt : cd.cmt || {},
+      kpiP: updates.kpiP !== undefined ? updates.kpiP : cd.kpiP || {},
+      sr: updates.sr !== undefined ? updates.sr : cd.sr || {},
+      seen: updates.seen !== undefined ? updates.seen : cd.seen || {},
+      pto: updates.pto !== undefined ? updates.pto : cd.pto || {},
+    };
     compDataRef.current = newData;
     setCompData(newData);
     setSaveErr(null);
@@ -436,7 +444,7 @@ function MemberDash({ uid, m, getTeam, wci, dci, cmt, kpiP, stuckRes, seen, pto,
     if (unseen.length > 0) {
       const newSeen = { ...seen };
       unseen.forEach(k => { newSeen[`${uid}:${k}`] = true; });
-      save(undefined, undefined, undefined, undefined, undefined, newSeen);
+      save({ seen: newSeen });
     }
   }, [tab, cmt, uid, seen, save]);
 
@@ -549,15 +557,18 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
     return () => window.removeEventListener('beforeunload', handler);
   }, [worked, existing, saved]);
 
+  const isFutureDate = selDate > ds(getToday());
+
   const submit = async () => {
-    if (!worked.trim()) return;
+    if (!worked.trim() || isFutureDate) return;
     if (stuck && !didnt.trim()) { setStuckErr(true); didntRef.current?.focus(); return; }
+    if (existing && !window.confirm("You already submitted for this day. Overwrite your previous entry?")) return;
     const key = `${uid}:${selDate}`;
     const isEdit = !!existing;
     const entry = { worked, didnt, plan, stuck, at: new Date().toISOString() };
     if (isEdit) { entry.edited = true; entry.originalAt = existing.originalAt || existing.at; }
     else { entry.originalAt = entry.at; }
-    await save(undefined, { ...dci, [key]: entry }, undefined, undefined, undefined, undefined);
+    await save({ dci: { ...dci, [key]: entry } });
     try { localStorage.removeItem(draftKey); } catch {}
     setSaved(true); setTimeout(() => setSaved(false), 2500);
   };
@@ -570,9 +581,16 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
 
   const recentDays = useMemo(() => {
     const days = []; const all = getWeekdaysBack(10, new Date(getToday().getTime() - 864e5));
-    for (const d of all) { if (d === selDate) continue; const e = dci[`${uid}:${d}`]; if (e) days.push({ date: d, ...e, cmt: cmt[`d:${uid}:${d}`] }); if (days.length >= 5) break; }
+    for (const d of all) {
+      if (d === selDate) continue;
+      const e = dci[`${uid}:${d}`];
+      const isPtoDay = !!pto[`${uid}:${d}`];
+      if (e) days.push({ date: d, ...e, cmt: cmt[`d:${uid}:${d}`], isPto: isPtoDay });
+      else days.push({ date: d, missed: true, isPto: isPtoDay });
+      if (days.length >= 5) break;
+    }
     return days;
-  }, [uid, dci, cmt, selDate]);
+  }, [uid, dci, cmt, pto, selDate]);
 
   return (
     <>
@@ -586,12 +604,12 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
       </div>
 
       <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
-        {[...selDays].reverse().map(d => {
-          const sel = d === selDate; const has = !!dci[`${uid}:${d}`]; const isPtoDay = !!pto[`${uid}:${d}`];
+        {selDays.map(d => {
+          const sel = d === selDate; const has = !!dci[`${uid}:${d}`]; const isPtoDay = !!pto[`${uid}:${d}`]; const isFuture = d > ds(getToday());
           return <button key={d} onClick={() => setSelDate(d)} style={{
             flex: 1, padding: "7px 4px", borderRadius: 8, border: "1.5px solid", borderColor: sel ? "#111" : "#e5e7eb",
             background: sel ? "#111" : "#fff", color: sel ? "#fff" : "#6b7280", fontSize: 12, fontWeight: 500,
-            cursor: "pointer", fontFamily: "inherit", textAlign: "center", position: "relative",
+            cursor: "pointer", fontFamily: "inherit", textAlign: "center", position: "relative", opacity: isFuture ? 0.4 : 1,
           }}>
             <div>{dayLabel(d).split(" ")[0]}</div>
             <div style={{ fontSize: 10, opacity: 0.7 }}>{d.split("-")[2]}</div>
@@ -609,7 +627,7 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
         <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 18, display: "flex", alignItems: "center", gap: 12 }}>
           {dayLabel(selDate)}
           {canTogglePto ? (
-            <button onClick={() => { const k = `${uid}:${selDate}`; const np = { ...pto }; if (np[k]) delete np[k]; else np[k] = true; save(undefined, undefined, undefined, undefined, undefined, undefined, np); }} style={{ fontSize: 11, fontWeight: 500, padding: "3px 10px", borderRadius: 6, border: "1px solid", borderColor: isPto ? "#6366f1" : "#e5e7eb", background: isPto ? "#eef2ff" : "#fff", color: isPto ? "#6366f1" : "#9ca3af", cursor: "pointer", fontFamily: "inherit" }}>
+            <button onClick={() => { const k = `${uid}:${selDate}`; const np = { ...pto }; if (np[k]) delete np[k]; else np[k] = true; save({ pto: np }); }} style={{ fontSize: 11, fontWeight: 500, padding: "3px 10px", borderRadius: 6, border: "1px solid", borderColor: isPto ? "#6366f1" : "#e5e7eb", background: isPto ? "#eef2ff" : "#fff", color: isPto ? "#6366f1" : "#9ca3af", cursor: "pointer", fontFamily: "inherit" }}>
               {isPto ? "\u2708 PTO (click to remove)" : "\u2708 Mark PTO"}
             </button>
           ) : isPto ? (
@@ -647,7 +665,8 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
             <span style={{ fontSize: 18 }}>{stuck ? "\ud83d\udea8" : "\u26aa"}</span>
             <div style={{ textAlign: "left" }}><div style={{ fontSize: 14, fontWeight: 600, color: stuck ? "#dc2626" : "#6b7280" }}>I'm STUCK and need help</div></div>
           </button>
-          <button onClick={submit} disabled={!worked.trim()} style={{ width: "100%", padding: "15px", borderRadius: 12, border: "none", background: !worked.trim() ? "#e5e7eb" : saved ? "#10b981" : "#111", color: !worked.trim() ? "#9ca3af" : "#fff", fontSize: 16, fontWeight: 700, cursor: worked.trim() ? "pointer" : "default", fontFamily: "inherit" }}>
+          {isFutureDate && <div style={{ textAlign: "center", padding: "10px", fontSize: 13, color: "#9ca3af", fontStyle: "italic" }}>Can't submit for a future date.</div>}
+          <button onClick={submit} disabled={!worked.trim() || isFutureDate} style={{ width: "100%", padding: "15px", borderRadius: 12, border: "none", background: !worked.trim() || isFutureDate ? "#e5e7eb" : saved ? "#10b981" : "#111", color: !worked.trim() || isFutureDate ? "#9ca3af" : "#fff", fontSize: 16, fontWeight: 700, cursor: worked.trim() && !isFutureDate ? "pointer" : "default", fontFamily: "inherit" }}>
             {saved ? "\u2713 Saved!" : existing ? "Update" : selDate !== ds(getToday()) ? `Submit for ${dayLabel(selDate)}` : "Submit daily update"}
           </button>
         </>)}
@@ -670,14 +689,24 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
       {recentDays.length > 0 && <div>
         <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 8 }}>Recent</div>
         {recentDays.map(d => (
-          <div key={d.date} style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "14px 16px", marginBottom: 8 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-              <div style={{ display: "flex", gap: 6, alignItems: "center" }}><span style={{ fontSize: 13, fontWeight: 600 }}>{dayLabel(d.date)}</span>{d.edited && <EditedBadge />}{isLate(d.date, d.at, tz) && <LateBadge />}</div>
-              <span style={{ fontSize: 11, color: isLate(d.date, d.at, tz) ? "#b45309" : "#9ca3af" }}>{fmtSubmission(d.date, d.at, tz)}</span>
+          <div key={d.date} style={{ background: d.missed ? "#fafafa" : "#fff", borderRadius: 12, border: "1px solid", borderColor: d.missed && !d.isPto ? "#fecaca" : "#e5e7eb", padding: "14px 16px", marginBottom: 8, opacity: d.missed ? 0.7 : 1 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: d.missed ? 0 : 6 }}>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <span style={{ fontSize: 13, fontWeight: 600 }}>{dayLabel(d.date)}</span>
+                {d.edited && <EditedBadge />}
+                {!d.missed && isLate(d.date, d.at, tz) && <LateBadge />}
+              </div>
+              {d.missed ? (
+                <span style={{ fontSize: 11, color: d.isPto ? "#6366f1" : "#ef4444", fontWeight: 500 }}>{d.isPto ? "\u2708 PTO" : "Missed"}</span>
+              ) : (
+                <span style={{ fontSize: 11, color: isLate(d.date, d.at, tz) ? "#b45309" : "#9ca3af" }}>{fmtSubmission(d.date, d.at, tz)}</span>
+              )}
             </div>
-            <div style={{ fontSize: 13, color: "#374151", lineHeight: 1.5, whiteSpace: "pre-line" }}>{d.worked}</div>
-            {d.didnt && <div style={{ fontSize: 12, color: "#ef4444", marginTop: 4, whiteSpace: "pre-line" }}>{"\u21b3"} {d.didnt}</div>}
-            {d.cmt && <div style={{ fontSize: 12, color: "#6366f1", marginTop: 4 }}>{"\ud83d\udcac"} {d.cmt.text}</div>}
+            {!d.missed && <>
+              <div style={{ fontSize: 13, color: "#374151", lineHeight: 1.5, whiteSpace: "pre-line" }}>{d.worked}</div>
+              {d.didnt && <div style={{ fontSize: 12, color: "#ef4444", marginTop: 4, whiteSpace: "pre-line" }}>{"\u21b3"} {d.didnt}</div>}
+              {d.cmt && <div style={{ fontSize: 12, color: "#6366f1", marginTop: 4 }}>{"\ud83d\udcac"} {d.cmt.text}</div>}
+            </>}
           </div>
         ))}
       </div>}
@@ -716,7 +745,7 @@ function WeeklyMember({ uid, m, wci, dci, cmt, kpiP, pto, save, tz }) {
 
   const submit = async () => {
     if (!allKpiSet || locked) return;
-    await save({ ...wci, [key]: { kpis: kpiStates, challenge, at: new Date().toISOString() } }, undefined, undefined, undefined, undefined, undefined);
+    await save({ wci: { ...wci, [key]: { kpis: kpiStates, challenge, at: new Date().toISOString() } } });
     setSaved(true); setTimeout(() => setSaved(false), 2500);
   };
 
@@ -746,7 +775,7 @@ function WeeklyMember({ uid, m, wci, dci, cmt, kpiP, pto, save, tz }) {
 
       <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "12px 16px", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <span style={{ fontSize: 13, color: "#6b7280" }}>Dailies this week</span>
-        <span style={{ fontSize: 14, fontWeight: 700, color: dailySumm.count >= 4 ? "#10b981" : dailySumm.count >= 2 ? "#f59e0b" : "#ef4444" }}>{dailySumm.count}/5</span>
+        <span style={{ fontSize: 14, fontWeight: 700, color: dailySumm.count >= dailySumm.expected ? "#10b981" : dailySumm.count >= Math.ceil(dailySumm.expected / 2) ? "#f59e0b" : "#ef4444" }}>{dailySumm.count}/{dailySumm.expected}</span>
       </div>
 
       {dailyContext && (
@@ -781,7 +810,7 @@ function WeeklyMember({ uid, m, wci, dci, cmt, kpiP, pto, save, tz }) {
                       </button>
                     ))}
                   </div>
-                  <input value={kpiStates[ki]?.actual || ""} onChange={e => { const n = [...kpiStates]; n[ki] = { ...n[ki], actual: e.target.value }; setKpiStates(n); }} disabled={locked} placeholder=""
+                  <input value={kpiStates[ki]?.actual || ""} onChange={e => { const n = [...kpiStates]; n[ki] = { ...n[ki], actual: e.target.value }; setKpiStates(n); }} disabled={locked} placeholder="Actual result (e.g. $32K closed, 2 reviews done)"
                     style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1.5px solid #e5e7eb", fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }} />
                 </div>
               ))}
@@ -797,6 +826,48 @@ function WeeklyMember({ uid, m, wci, dci, cmt, kpiP, pto, save, tz }) {
         )}
         {ceoComment && <div style={{ marginTop: 16, padding: "12px 14px", borderRadius: 12, background: "#f8fafc", border: "1px solid #e2e8f0" }}><div style={{ fontSize: 11, color: "#6366f1", fontWeight: 600, marginBottom: 3 }}>{"\ud83d\udcac"} Feedback</div><div style={{ fontSize: 13, color: "#334155" }}>{ceoComment.text}</div></div>}
       </div>
+
+      {/* Past Weeks History */}
+      {(() => {
+        const pastWeeks = [];
+        for (let i = CW - 1; i >= Math.max(0, CW - 8); i--) {
+          const entry = wci[`${uid}:${WEEKS[i]?.id}`];
+          if (entry?.kpis) pastWeeks.push({ wi: i, entry });
+        }
+        if (pastWeeks.length === 0) return null;
+        return (
+          <div style={{ marginTop: 20 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 8 }}>Past Weeks</div>
+            {pastWeeks.map(({ wi: pwi, entry: pe }) => {
+              const pwk = WEEKS[pwi];
+              const pCmt = cmt[`${uid}:${pwk.id}`];
+              const pStatus = resolveWeek(uid, pwi, wci);
+              return (
+                <div key={pwk.id} style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "14px 16px", marginBottom: 8 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700 }}>{pwk.range}</span>
+                    <span style={{ width: 18, height: 18, borderRadius: "50%", background: pStatus === "green" ? "#10b981" : "#ef4444", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#fff", fontWeight: 700 }}>{pStatus === "green" ? "\u2713" : "\u2717"}</span>
+                  </div>
+                  {m.kpis.map((kpi, ki) => {
+                    const k = pe.kpis[ki];
+                    return (
+                      <div key={ki} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: ki < m.kpis.length - 1 ? "1px solid #f3f4f6" : "none" }}>
+                        <span style={{ fontSize: 12, color: "#374151" }}>{kpi}</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          {k?.actual && <span style={{ fontSize: 11, color: "#6b7280" }}>{k.actual}</span>}
+                          <span style={{ width: 14, height: 14, borderRadius: "50%", background: k?.status === "green" ? "#10b981" : "#ef4444", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 8, color: "#fff", fontWeight: 700 }}>{k?.status === "green" ? "\u2713" : "\u2717"}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {pe.challenge && <div style={{ fontSize: 12, color: "#6b7280", marginTop: 6, fontStyle: "italic" }}>{pe.challenge}</div>}
+                  {pCmt && <div style={{ fontSize: 12, color: "#6366f1", marginTop: 4 }}>{"\ud83d\udcac"} {pCmt.text}</div>}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
     </>
   );
 }
@@ -856,15 +927,15 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
   const nudge = m => { navigator.clipboard?.writeText(`Hey ${m.name.split(" ")[0]}, daily update is due — what worked (numbers), what didn't, tomorrow's plan.`); setCopied(m.id); setTimeout(() => setCopied(null), 2000); };
 
   const saveDailyCmt = async (uid, date, text) => {
-    await save(undefined, undefined, { ...cmt, [`d:${uid}:${date}`]: { text, at: new Date().toISOString() } }, undefined, undefined, undefined);
+    await save({ cmt: { ...cmt, [`d:${uid}:${date}`]: { text, at: new Date().toISOString() } } });
   };
   const addStuckReply = async (uid, date, text) => {
     const key = `${uid}:${date}`;
     const thread = [...(stuckRes[key] || []), { text, from: "ceo", at: new Date().toISOString() }];
-    await save(undefined, undefined, undefined, undefined, { ...stuckRes, [key]: thread }, undefined);
+    await save({ sr: { ...stuckRes, [key]: thread } });
   };
   const saveWeeklyCmt = async (uid, text) => {
-    await save(undefined, undefined, { ...cmt, [`${uid}:${wk.id}`]: { text, at: new Date().toISOString() } }, undefined, undefined, undefined);
+    await save({ cmt: { ...cmt, [`${uid}:${wk.id}`]: { text, at: new Date().toISOString() } } });
   };
 
   // Drilldown
@@ -1035,7 +1106,36 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
                   <span style={{ fontSize: 13 }}>{kpi}</span>
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>{k?.actual && <span style={{ fontSize: 12, color: "#6b7280" }}>{k.actual}</span>}<span style={{ width: 14, height: 14, borderRadius: "50%", background: k?.status === "green" ? "#10b981" : "#ef4444", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: "#fff", fontWeight: 700 }}>{k?.status === "green" ? "\u2713" : "\u2717"}</span></div>
                 </div>; })}
+                {drillData.weeklyEntry.challenge && <div style={{ fontSize: 12, color: "#6b7280", marginTop: 8, fontStyle: "italic" }}>{drillData.weeklyEntry.challenge}</div>}
+                <div style={{ marginTop: 8 }}>
+                  <InlineCmt existingText={cmt[`${drillData.m.id}:${drillWk.id}`]?.text} onSave={(txt) => saveWeeklyCmt(drillData.m.id, txt)} />
+                </div>
               </div>}
+              {/* Past weeks feedback history */}
+              {(() => {
+                const pw = [];
+                for (let i = drillWeekIdx - 1; i >= Math.max(0, drillWeekIdx - 4); i--) {
+                  const pe = wci[`${drillData.m.id}:${WEEKS[i]?.id}`];
+                  const pc = cmt[`${drillData.m.id}:${WEEKS[i]?.id}`];
+                  if (pe?.kpis || pc) pw.push({ wi: i, entry: pe, comment: pc });
+                }
+                if (pw.length === 0) return null;
+                return (
+                  <div style={{ marginTop: 12 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "#9ca3af", marginBottom: 6 }}>Previous weeks</div>
+                    {pw.map(({ wi: pwi, entry: pe, comment: pc }) => (
+                      <div key={pwi} style={{ background: "#f9fafb", borderRadius: 10, border: "1px solid #e5e7eb", padding: "10px 14px", marginBottom: 6 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: pe?.kpis ? 6 : 0 }}>
+                          <span style={{ fontSize: 12, fontWeight: 600 }}>{WEEKS[pwi].range}</span>
+                          <span style={{ fontSize: 11, color: resolveWeek(drillData.m.id, pwi, wci) === "green" ? "#10b981" : "#ef4444", fontWeight: 600 }}>{resolveWeek(drillData.m.id, pwi, wci) === "green" ? "\u2713 Green" : "\u2717 Red"}</span>
+                        </div>
+                        {pe?.kpis && drillData.m.kpis.map((kpi, ki) => { const k = pe.kpis[ki]; return k ? <div key={ki} style={{ fontSize: 11, color: "#6b7280", display: "flex", justifyContent: "space-between", padding: "2px 0" }}><span>{kpi}</span>{k.actual && <span>{k.actual}</span>}</div> : null; })}
+                        {pc && <div style={{ fontSize: 11, color: "#6366f1", marginTop: 4 }}>{"\ud83d\udcac"} {pc.text}</div>}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
             </div>
           ) : (
             <>
@@ -1109,7 +1209,7 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
                             </div>
                           ) : <span style={{ fontSize: 11, color: isLocked(wIdx) ? "#ef4444" : "#d1d5db" }}>{isLocked(wIdx) ? "Auto-red" : "Pending"}</span>}
                         </div>
-                        <div style={{ textAlign: "center", fontSize: 12, fontWeight: 600, color: m.dSumm.count >= 4 ? "#10b981" : m.dSumm.count >= 2 ? "#f59e0b" : "#ef4444" }}>{m.dSumm.count}/5</div>
+                        <div style={{ textAlign: "center", fontSize: 12, fontWeight: 600, color: m.dSumm.count >= m.dSumm.expected ? "#10b981" : m.dSumm.count >= Math.ceil(m.dSumm.expected / 2) ? "#f59e0b" : "#ef4444" }}>{m.dSumm.count}/{m.dSumm.expected}</div>
                         <div style={{ textAlign: "right" }}>
                           <InlineCmt existingText={cmt[`${m.id}:${wk.id}`]?.text} onSave={(txt) => saveWeeklyCmt(m.id, txt)} />
                         </div>
@@ -1558,7 +1658,7 @@ function MemberStuckReply({ uid, date, stuckRes, save }) {
     if (!text.trim()) return;
     const key = `${uid}:${date}`;
     const thread = [...(stuckRes[key] || []), { text: text.trim(), from: uid, at: new Date().toISOString() }];
-    await save(undefined, undefined, undefined, undefined, { ...stuckRes, [key]: thread }, undefined);
+    await save({ sr: { ...stuckRes, [key]: thread } });
     setText("");
   };
   return (
