@@ -1,5 +1,62 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 
+// ─── Google Fonts (single injection) ────────────────────────
+const FONT_URL = "https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&display=swap";
+let fontInjected = false;
+function ensureFont() {
+  if (fontInjected) return;
+  fontInjected = true;
+  const link = document.createElement("link");
+  link.rel = "stylesheet";
+  link.href = FONT_URL;
+  document.head.appendChild(link);
+}
+
+// ─── Hash Routing ──────────────────────────────────────────
+function useHashRoute() {
+  const [hash, setHash] = useState(() => window.location.hash.slice(1) || "");
+  useEffect(() => {
+    const handler = () => setHash(window.location.hash.slice(1) || "");
+    window.addEventListener("hashchange", handler);
+    return () => window.removeEventListener("hashchange", handler);
+  }, []);
+  const navigate = useCallback((path, replace = false) => {
+    if (replace) window.history.replaceState(null, "", "#" + path);
+    else window.history.pushState(null, "", "#" + path);
+    setHash(path);
+  }, []);
+  return { hash, navigate };
+}
+function parseRoute(hash) {
+  const parts = hash.split("/").filter(Boolean);
+  return { view: parts[0] || "", sub: parts[1] || "", param: parts[2] || "" };
+}
+
+// ─── Shared Style Constants ─────────────────────────────────
+const S = {
+  font: "'DM Sans',-apple-system,sans-serif",
+  radius: { sm: 6, md: 10, lg: 12, xl: 16 },
+  border: "#e5e7eb",
+  borderLight: "#f3f4f6",
+  textPrimary: "#111",
+  textSecondary: "#374151",
+  textMuted: "#6b7280",
+  textFaint: "#9ca3af",
+  bg: "#fafafa",
+  bgWhite: "#fff",
+  inputStyle: { width: "100%", padding: "11px 14px", borderRadius: 10, border: "1.5px solid #e5e7eb", fontSize: 14, fontFamily: "'DM Sans',sans-serif", outline: "none", boxSizing: "border-box" },
+  btnPrimary: { borderRadius: 12, border: "none", background: "#111", color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" },
+  textBlock: { whiteSpace: "pre-line", overflowWrap: "break-word", wordBreak: "break-word" },
+};
+
+// ─── Input Limits ──────────────────────────────────────────
+const LIMITS = { daily: 2000, challenge: 1000, kpiActual: 200, feedback: 500, stuckReply: 500 };
+function CharCount({ value, max }) {
+  const len = value?.length || 0;
+  if (len < max * 0.8) return null;
+  return <div style={{ fontSize: 10, color: len >= max ? "#ef4444" : "#f59e0b", textAlign: "right", marginTop: 2 }}>{len}/{max}</div>;
+}
+
 // ─── Dates & Weeks ─────────────────────────────────────────
 const GRACE_H = 48;
 
@@ -134,8 +191,14 @@ const C = {
 };
 
 // ─── Shared UI ────────────────────────────────────────────
-const AC = { S: "#6366f1", M: "#10b981", P: "#f59e0b", J: "#ec4899", A: "#8b5cf6", E: "#06b6d4", T: "#f43f5e", D: "#14b8a6", R: "#f97316", L: "#84cc16", K: "#a855f7", B: "#3b82f6", C: "#ec4899", N: "#6366f1", O: "#10b981", G: "#ef4444" };
-const Av = ({ i, s = 30 }) => <div style={{ width: s, height: s, borderRadius: "50%", background: AC[i?.[0]?.toUpperCase()] || "#6366f1", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: s * 0.37, fontWeight: 600, flexShrink: 0 }}>{i}</div>;
+const AV_COLORS = ["#6366f1", "#10b981", "#f59e0b", "#ec4899", "#8b5cf6", "#06b6d4", "#f43f5e", "#14b8a6", "#f97316", "#84cc16", "#a855f7", "#3b82f6", "#0891b2", "#e11d48", "#7c3aed", "#059669"];
+function avColor(initials) {
+  if (!initials) return AV_COLORS[0];
+  let hash = 0;
+  for (let i = 0; i < initials.length; i++) hash = (hash * 31 + initials.charCodeAt(i)) | 0;
+  return AV_COLORS[Math.abs(hash) % AV_COLORS.length];
+}
+const Av = ({ i, s = 30 }) => <div style={{ width: s, height: s, borderRadius: "50%", background: avColor(i), color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: s * 0.37, fontWeight: 600, flexShrink: 0 }}>{i}</div>;
 const Spark = ({ data, w = 60, h = 20 }) => {
   const v = data.map(d => d === "green" ? 1 : d === "red" || d === "auto-red" ? 0 : 0.5);
   if (v.length < 2) return null; const step = w / (v.length - 1);
@@ -166,7 +229,9 @@ export default function App() {
   const [dataLoaded, setDataLoaded] = useState(false);
   const [dataLoadErr, setDataLoadErr] = useState(null);
   const [saveErr, setSaveErr] = useState(null);
+  const { hash, navigate } = useHashRoute();
 
+  useEffect(ensureFont, []);
   useNow(60000);
 
   // ─── Load config & session ───
@@ -234,7 +299,10 @@ export default function App() {
   const login = useCallback(async (sess) => {
     setSession(sess);
     try { if (sess) localStorage.setItem(SESSION_KEY, JSON.stringify(sess)); else localStorage.removeItem(SESSION_KEY); } catch {}
-  }, []);
+    if (!sess) navigate("", true);
+    else if (sess.type === "ceo") navigate("daily", true);
+    else navigate("daily", true);
+  }, [navigate]);
 
   const logout = useCallback(() => login(null), [login]);
 
@@ -264,7 +332,7 @@ export default function App() {
   if (!dataLoaded) return <DataLoadingScreen />;
 
   if (dataLoadErr) return (
-    <div style={{ minHeight: "100vh", fontFamily: "'DM Sans',-apple-system,sans-serif", background: "#fafafa", display: "flex", alignItems: "center", justifyContent: "center" }}>
+    <div style={{ minHeight: "100vh", fontFamily: S.font, background: S.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
       <style>{GLOBAL_STYLES}</style>
       <div style={{ textAlign: "center", maxWidth: 400, padding: 20 }}>
         <div style={{ fontSize: 28, marginBottom: 12, opacity: 0.4 }}>{"\u26a0"}</div>
@@ -287,7 +355,7 @@ export default function App() {
         wci={wci} dci={dci} cmt={cmt} kpiP={kpiP} stuckRes={stuckRes} seen={seen} pto={pto}
         save={saveData} cfg={cfg} saveCfg={saveCfg}
         switchCompany={(cid) => login({ type: "ceo", compId: cid })}
-        logout={logout}
+        logout={logout} hash={hash} navigate={navigate}
       />
       {saveErr && <ErrorToast msg={saveErr} onClose={() => setSaveErr(null)} />}
     </>;
@@ -301,6 +369,7 @@ export default function App() {
       uid={member.id} m={member} getTeam={getTeam}
       wci={wci} dci={dci} cmt={cmt} kpiP={kpiP} stuckRes={stuckRes} seen={seen} pto={pto}
       save={saveData} logout={logout} cfg={cfg} saveCfg={saveCfg} compId={session.compId}
+      hash={hash} navigate={navigate}
     />
     {saveErr && <ErrorToast msg={saveErr} onClose={() => setSaveErr(null)} />}
   </>;
@@ -311,11 +380,12 @@ const GLOBAL_STYLES = `
 @keyframes toastIn { from { opacity: 0; transform: translateX(-50%) translateY(-12px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
 input:focus, textarea:focus, select:focus { outline: none; box-shadow: 0 0 0 2px #6366f1 !important; border-color: #6366f1 !important; }
 button:focus-visible { outline: 2px solid #6366f1; outline-offset: 2px; }
+textarea { max-height: 400px; }
 `;
 
 function LoadingScreen() {
-  return <div style={{ display: "flex", height: "100vh", alignItems: "center", justifyContent: "center", fontFamily: "'DM Sans',sans-serif", color: "#9ca3af" }}>
-    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&display=swap" rel="stylesheet" />
+  useEffect(ensureFont, []);
+  return <div style={{ display: "flex", height: "100vh", alignItems: "center", justifyContent: "center", fontFamily: S.font, color: S.textFaint }}>
     <style>{GLOBAL_STYLES}</style>
     Loading…
   </div>;
@@ -323,8 +393,8 @@ function LoadingScreen() {
 
 function DataLoadingScreen() {
   return (
-    <div style={{ minHeight: "100vh", fontFamily: "'DM Sans',-apple-system,sans-serif", background: "#fafafa" }}>
-      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&display=swap" rel="stylesheet" />
+    <div style={{ minHeight: "100vh", fontFamily: S.font, background: S.bg }}>
+
       <div style={{ background: "#fff", borderBottom: "1px solid #e5e7eb", padding: "10px 20px", display: "flex", alignItems: "center", gap: 8 }}>
         <span style={{ fontSize: 18 }}>{"\u25ce"}</span><span style={{ fontSize: 15, fontWeight: 700, letterSpacing: -0.3 }}>Checkin</span>
       </div>
@@ -346,8 +416,7 @@ function DataLoadingScreen() {
 
 function SessionErrorScreen({ message, onLogout }) {
   return (
-    <div style={{ minHeight: "100vh", fontFamily: "'DM Sans',-apple-system,sans-serif", background: "#fafafa", display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&display=swap" rel="stylesheet" />
+    <div style={{ minHeight: "100vh", fontFamily: S.font, background: S.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
       <style>{GLOBAL_STYLES}</style>
       <div style={{ textAlign: "center", maxWidth: 400, padding: 20 }}>
         <div style={{ fontSize: 28, marginBottom: 12 }}>{"\ud83d\udd12"}</div>
@@ -398,12 +467,11 @@ function CeoSetup({ onComplete }) {
   };
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'DM Sans',sans-serif", background: "#fafafa" }}>
-      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&display=swap" rel="stylesheet" />
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: S.font, background: S.bg }}>
       <div style={{ width: "100%", maxWidth: 420, padding: 20 }}>
         <div style={{ textAlign: "center", marginBottom: 32 }}>
           <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: -0.5, marginBottom: 4 }}>{"\u25ce"} Checkin</div>
-          <div style={{ fontSize: 14, color: "#6b7280" }}>Set up your account</div>
+          <div style={{ fontSize: 14, color: S.textMuted }}>Set up your account</div>
         </div>
 
         {step === 0 && (
@@ -472,12 +540,11 @@ function LoginScreen({ cfg, onLogin }) {
   };
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'DM Sans',sans-serif", background: "#fafafa" }}>
-      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&display=swap" rel="stylesheet" />
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: S.font, background: S.bg }}>
       <div style={{ width: "100%", maxWidth: 380, padding: 20 }}>
         <div style={{ textAlign: "center", marginBottom: 32 }}>
           <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: -0.5, marginBottom: 4 }}>{"\u25ce"} Checkin</div>
-          <div style={{ fontSize: 14, color: "#6b7280" }}>Sign in</div>
+          <div style={{ fontSize: 14, color: S.textMuted }}>Sign in</div>
         </div>
         <div style={{ background: "#fff", borderRadius: 16, border: "1px solid #e5e7eb", padding: "28px 24px" }}>
           <label style={{ fontSize: 13, fontWeight: 500, display: "block", marginBottom: 5 }}>Email</label>
@@ -501,9 +568,11 @@ function LoginScreen({ cfg, onLogin }) {
 // ═══════════════════════════════════════════════════════════
 // MEMBER DASHBOARD
 // ═══════════════════════════════════════════════════════════
-function MemberDash({ uid, m, getTeam, wci, dci, cmt, kpiP, stuckRes, seen, pto, save, logout, cfg, saveCfg, compId }) {
+function MemberDash({ uid, m, getTeam, wci, dci, cmt, kpiP, stuckRes, seen, pto, save, logout, cfg, saveCfg, compId, hash, navigate }) {
   const [teamKey] = getTeam(uid) || [];
-  const [tab, setTab] = useState("daily");
+  const route = parseRoute(hash);
+  const tab = route.view === "weekly" ? "weekly" : "daily";
+  const setTab = useCallback((t) => navigate(t), [navigate]);
   const [showPwChange, setShowPwChange] = useState(false);
   const [newPw, setNewPw] = useState("");
   const [pwSaved, setPwSaved] = useState(false);
@@ -546,10 +615,9 @@ function MemberDash({ uid, m, getTeam, wci, dci, cmt, kpiP, stuckRes, seen, pto,
   }, [tab, cmt, uid, seen, save]);
 
   return (
-    <div style={{ minHeight: "100vh", fontFamily: "'DM Sans',-apple-system,sans-serif", background: "#fafafa", display: "flex", flexDirection: "column" }}>
-      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&display=swap" rel="stylesheet" />
+    <div style={{ minHeight: "100vh", fontFamily: S.font, background: S.bg, display: "flex", flexDirection: "column" }}>
       <style>{GLOBAL_STYLES}</style>
-      <div style={{ background: "#fff", borderBottom: "1px solid #e5e7eb", padding: "10px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <div style={{ background: S.bgWhite, borderBottom: `1px solid ${S.border}`, padding: "10px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={{ fontSize: 18 }}>{"\u25ce"}</span><span style={{ fontSize: 15, fontWeight: 700, letterSpacing: -0.3 }}>Checkin</span></div>
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
           <button onClick={() => { setShowTzPicker(!showTzPicker); setShowPwChange(false); }} style={{ background: "none", border: "none", fontSize: 12, color: "#9ca3af", cursor: "pointer", fontFamily: "inherit" }}>{"\ud83c\udf10"} Timezone</button>
@@ -765,22 +833,25 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
           </div>
         ) : (<>
           <div style={{ marginBottom: 16 }}>
-            <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 5, color: "#10b981" }}>1. What worked today? <span style={{ fontWeight: 400, color: "#9ca3af", fontSize: 12 }}>{getDailyHint(WORKED_HINTS, selDate)}</span></label>
-            <textarea value={worked} onChange={e => setWorked(e.target.value)} rows={3} placeholder="e.g. Closed 3 deals worth $12K, finished onboarding deck, 15 cold calls — 4 booked"
-              style={{ width: "100%", padding: "11px 14px", borderRadius: 10, border: "1.5px solid #e5e7eb", fontSize: 14, fontFamily: "inherit", outline: "none", resize: "vertical", boxSizing: "border-box", lineHeight: 1.5 }} />
+            <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 5, color: "#10b981" }}>1. What worked today? <span style={{ color: "#ef4444", fontWeight: 700 }}>*</span> <span style={{ fontWeight: 400, color: S.textFaint, fontSize: 12 }}>{getDailyHint(WORKED_HINTS, selDate)}</span></label>
+            <textarea value={worked} onChange={e => setWorked(e.target.value)} rows={3} maxLength={LIMITS.daily} placeholder="e.g. Closed 3 deals worth $12K, finished onboarding deck, 15 cold calls — 4 booked"
+              style={{ ...S.inputStyle, resize: "vertical", lineHeight: 1.5 }} />
+            <CharCount value={worked} max={LIMITS.daily} />
           </div>
           <div style={{ marginBottom: 16 }}>
             <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 5, color: "#ef4444" }}>
-              2. What didn't work? {stuck && <span style={{ color: "#ef4444" }}>*</span>} <span style={{ fontWeight: 400, color: "#9ca3af", fontSize: 12 }}>{getDailyHint(DIDNT_HINTS, selDate)}</span>
+              2. What didn't work? {stuck ? <span style={{ color: "#ef4444", fontWeight: 700 }}>*</span> : <span style={{ fontWeight: 400, color: S.textFaint, fontSize: 11 }}>(optional)</span>} <span style={{ fontWeight: 400, color: S.textFaint, fontSize: 12 }}>{getDailyHint(DIDNT_HINTS, selDate)}</span>
             </label>
-            <textarea ref={didntRef} value={didnt} onChange={e => { setDidnt(e.target.value); if (e.target.value.trim()) setStuckErr(false); }} rows={2} placeholder="e.g. Demo fell through — switching to async video pitches next week"
-              style={{ width: "100%", padding: "11px 14px", borderRadius: 10, border: `1.5px solid ${(stuckErr || (stuck && !didnt.trim())) ? "#ef4444" : "#e5e7eb"}`, fontSize: 14, fontFamily: "inherit", outline: "none", resize: "vertical", boxSizing: "border-box", lineHeight: 1.5 }} />
+            <textarea ref={didntRef} value={didnt} onChange={e => { setDidnt(e.target.value); if (e.target.value.trim()) setStuckErr(false); }} rows={2} maxLength={LIMITS.daily} placeholder="e.g. Demo fell through — switching to async video pitches next week"
+              style={{ ...S.inputStyle, resize: "vertical", lineHeight: 1.5, borderColor: (stuckErr || (stuck && !didnt.trim())) ? "#ef4444" : S.border }} />
             {(stuckErr || (stuck && !didnt.trim())) && <div style={{ fontSize: 12, color: "#ef4444", marginTop: 4, fontWeight: 500 }}>{"\u26a0"} Required when stuck — describe what isn't working and what you're changing.</div>}
+            <CharCount value={didnt} max={LIMITS.daily} />
           </div>
           <div style={{ marginBottom: 16 }}>
-            <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 5, color: "#6366f1" }}>3. Plan for tomorrow <span style={{ fontWeight: 400, color: "#9ca3af", fontSize: 12 }}>{getDailyHint(PLAN_HINTS, selDate)}</span></label>
-            <textarea value={plan} onChange={e => setPlan(e.target.value)} rows={2} placeholder="e.g. Follow up with 5 warm leads, prep Q2 forecast, need help with pricing approval"
-              style={{ width: "100%", padding: "11px 14px", borderRadius: 10, border: "1.5px solid #e5e7eb", fontSize: 14, fontFamily: "inherit", outline: "none", resize: "vertical", boxSizing: "border-box", lineHeight: 1.5 }} />
+            <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 5, color: "#6366f1" }}>3. Plan for tomorrow <span style={{ fontWeight: 400, color: S.textFaint, fontSize: 11 }}>(optional)</span> <span style={{ fontWeight: 400, color: S.textFaint, fontSize: 12 }}>{getDailyHint(PLAN_HINTS, selDate)}</span></label>
+            <textarea value={plan} onChange={e => setPlan(e.target.value)} rows={2} maxLength={LIMITS.daily} placeholder="e.g. Follow up with 5 warm leads, prep Q2 forecast, need help with pricing approval"
+              style={{ ...S.inputStyle, resize: "vertical", lineHeight: 1.5 }} />
+            <CharCount value={plan} max={LIMITS.daily} />
           </div>
           <button onClick={() => { const next = !stuck; setStuck(next); if (next && !didnt.trim()) { setStuckErr(true); setTimeout(() => didntRef.current?.focus(), 50); } else { setStuckErr(false); } }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderRadius: 12, border: "2px solid", borderColor: stuck ? "#ef4444" : "#f59e0b", background: stuck ? "#fef2f2" : "#fffbeb", cursor: "pointer", fontFamily: "inherit", width: "100%", marginBottom: 20, transition: "all 0.15s" }}>
             <span style={{ fontSize: 20, width: 32, height: 32, borderRadius: "50%", background: stuck ? "#ef4444" : "#f59e0b", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{stuck ? "\ud83d\udea8" : "?"}</span>
@@ -799,13 +870,20 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
         </>)}
 
         {stuckThread && stuckThread.length > 0 && (
-          <div style={{ marginTop: 16, padding: "12px 14px", borderRadius: 12, background: "#fef2f2", border: "1px solid #fecaca" }}>
-            <div style={{ fontSize: 11, color: "#dc2626", fontWeight: 600, marginBottom: 6 }}>{"\ud83d\udea8"} Stuck thread</div>
-            {stuckThread.map((msg, i) => (
-              <div key={i} style={{ fontSize: 13, color: msg.from === "ceo" ? "#065f46" : "#374151", marginBottom: 4, paddingLeft: msg.from === "ceo" ? 0 : 12 }}>
-                <span style={{ fontWeight: 600 }}>{msg.from === "ceo" ? "CEO" : "You"}:</span> {msg.text}
-              </div>
-            ))}
+          <div style={{ marginTop: 16, padding: "14px 16px", borderRadius: 12, background: "#fef2f2", border: "1px solid #fecaca" }}>
+            <div style={{ fontSize: 11, color: "#dc2626", fontWeight: 600, marginBottom: 10 }}>{"\ud83d\udea8"} Stuck thread</div>
+            {stuckThread.map((msg, i) => {
+              const isCeo = msg.from === "ceo";
+              return (
+                <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: isCeo ? "flex-start" : "flex-end", marginBottom: 8 }}>
+                  <div style={{ maxWidth: "85%", padding: "8px 12px", borderRadius: 10, background: isCeo ? "#ecfdf5" : "#fff", border: `1px solid ${isCeo ? "#a7f3d0" : "#e5e7eb"}` }}>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: isCeo ? "#065f46" : S.textMuted, marginBottom: 2 }}>{isCeo ? "CEO" : "You"}</div>
+                    <div style={{ fontSize: 13, color: S.textSecondary, ...S.textBlock }}>{msg.text}</div>
+                  </div>
+                  {msg.at && <div style={{ fontSize: 9, color: S.textFaint, marginTop: 2, paddingLeft: 4, paddingRight: 4 }}>{fmtTime(msg.at, tz)}</div>}
+                </div>
+              );
+            })}
             <MemberStuckReply uid={uid} date={selDate} stuckRes={stuckRes} save={save} />
           </div>
         )}
@@ -833,8 +911,8 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
               )}
             </div>
             {!d.missed && <>
-              <div style={{ fontSize: 13, color: "#374151", lineHeight: 1.5, whiteSpace: "pre-line" }}>{d.worked}</div>
-              {d.didnt && <div style={{ fontSize: 12, color: "#ef4444", marginTop: 4, whiteSpace: "pre-line" }}>{"\u21b3"} {d.didnt}</div>}
+              <div style={{ fontSize: 13, color: "#374151", lineHeight: 1.5, whiteSpace: "pre-line", overflowWrap: "break-word", wordBreak: "break-word" }}>{d.worked}</div>
+              {d.didnt && <div style={{ fontSize: 12, color: "#ef4444", marginTop: 4, whiteSpace: "pre-line", overflowWrap: "break-word", wordBreak: "break-word" }}>{"\u21b3"} {d.didnt}</div>}
               {d.cmt && <div style={{ fontSize: 12, color: "#6366f1", marginTop: 4 }}>{"\ud83d\udcac"} {d.cmt.text}</div>}
             </>}
           </div>
@@ -889,6 +967,13 @@ function WeeklyMember({ uid, m, wci, dci, cmt, kpiP, pto, save, tz }) {
     } finally { setSubmitting(false); }
   };
 
+  // Cmd+Enter / Ctrl+Enter to submit
+  useEffect(() => {
+    const handler = (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); submit(); } };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  });
+
   const vs = Math.max(0, CW - 11), vw = WEEKS.slice(vs, CW + 1);
 
   return (
@@ -902,7 +987,7 @@ function WeeklyMember({ uid, m, wci, dci, cmt, kpiP, pto, save, tz }) {
           <div style={{ display: "flex", gap: 16 }}>
             <div><div style={{ fontSize: 26, fontWeight: 800, letterSpacing: -1, color: "#10b981" }}>{totalGreen}</div><div style={{ fontSize: 11, color: "#6b7280" }}>green</div></div>
             <div><div style={{ fontSize: 26, fontWeight: 800, letterSpacing: -1, color: totalScored - totalGreen > 0 ? "#ef4444" : "#d1d5db" }}>{totalScored - totalGreen}</div><div style={{ fontSize: 11, color: "#6b7280" }}>red</div></div>
-            <div><div style={{ fontSize: 26, fontWeight: 800, letterSpacing: -1, color: hitRate >= 70 ? "#10b981" : hitRate >= 50 ? "#f59e0b" : "#ef4444" }}>{hitRate}%</div><div style={{ fontSize: 11, color: "#6b7280" }}>hit rate</div></div>
+            <div title={`${hitRate}% hit rate\n\nGreen: 70%+\nAmber: 50–69%\nRed: below 50%`}><div style={{ fontSize: 26, fontWeight: 800, letterSpacing: -1, color: hitRate >= 70 ? "#10b981" : hitRate >= 50 ? "#f59e0b" : "#ef4444", cursor: "help" }}>{hitRate}%</div><div style={{ fontSize: 11, color: S.textMuted }}>hit rate</div></div>
           </div>
           {streak > 0 && <div style={{ background: streak >= 6 ? "#ecfdf5" : "#f3f4f6", padding: "6px 14px", borderRadius: 20, fontSize: 13, fontWeight: 700, color: streak >= 6 ? "#065f46" : "#6b7280" }}>{streak >= 6 ? "\ud83d\udd25 " : ""}{streak}w</div>}
         </div>
@@ -925,7 +1010,7 @@ function WeeklyMember({ uid, m, wci, dci, cmt, kpiP, pto, save, tz }) {
             <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>Your daily numbers this week</div>
             <button onClick={() => setContextExpanded(!contextExpanded)} style={{ background: "none", border: "none", fontSize: 11, color: "#6366f1", cursor: "pointer", fontFamily: "inherit", fontWeight: 600, padding: 0 }}>{contextExpanded ? "Collapse" : "Expand"}</button>
           </div>
-          <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.5, whiteSpace: "pre-line", maxHeight: contextExpanded ? "none" : 80, overflow: "hidden" }}>{dailyContext}</div>
+          <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.5, whiteSpace: "pre-line", overflowWrap: "break-word", wordBreak: "break-word", maxHeight: contextExpanded ? "none" : 80, overflow: "hidden" }}>{dailyContext}</div>
           {!contextExpanded && dailyContext.split("\n").length > 3 && <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 32, background: "linear-gradient(transparent, #f8fafc)", borderRadius: "0 0 12px 12px", pointerEvents: "none" }} />}
         </div>
       )}
@@ -955,14 +1040,15 @@ function WeeklyMember({ uid, m, wci, dci, cmt, kpiP, pto, save, tz }) {
                       </button>
                     ))}
                   </div>
-                  <input value={kpiStates[ki]?.actual || ""} onChange={e => { const n = [...kpiStates]; n[ki] = { ...n[ki], actual: e.target.value }; setKpiStates(n); }} disabled={locked} placeholder="Actual result (e.g. $32K closed, 2 reviews done)"
-                    style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1.5px solid #e5e7eb", fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }} />
+                  <input value={kpiStates[ki]?.actual || ""} onChange={e => { const n = [...kpiStates]; n[ki] = { ...n[ki], actual: e.target.value }; setKpiStates(n); }} disabled={locked} maxLength={LIMITS.kpiActual} placeholder="Actual result (e.g. $32K closed, 2 reviews done)"
+                    style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1.5px solid ${S.border}`, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }} />
                 </div>
               ))}
             </div>
             <div style={{ marginBottom: 22 }}>
-              <label style={{ fontSize: 13, fontWeight: 500, display: "block", marginBottom: 5 }}>Challenges? <span style={{ fontWeight: 400, color: "#9ca3af" }}>(optional)</span></label>
-              <textarea value={challenge} onChange={e => setChallenge(e.target.value)} disabled={locked} placeholder="e.g. Pipeline slowed down — need marketing support on lead gen" rows={2} style={{ width: "100%", padding: "11px 14px", borderRadius: 10, border: "1.5px solid #e5e7eb", fontSize: 14, fontFamily: "inherit", outline: "none", resize: "vertical", boxSizing: "border-box" }} />
+              <label style={{ fontSize: 13, fontWeight: 500, display: "block", marginBottom: 5 }}>Challenges? <span style={{ fontWeight: 400, color: S.textFaint }}>(optional)</span></label>
+              <textarea value={challenge} onChange={e => setChallenge(e.target.value)} disabled={locked} maxLength={LIMITS.challenge} placeholder="e.g. Pipeline slowed down — need marketing support on lead gen" rows={2} style={{ ...S.inputStyle, resize: "vertical" }} />
+              <CharCount value={challenge} max={LIMITS.challenge} />
             </div>
             <button onClick={submit} disabled={!allKpiSet || locked || submitting} style={{ width: "100%", padding: "15px", borderRadius: 12, border: "none", background: !allKpiSet || locked || submitting ? "#e5e7eb" : saved ? "#10b981" : "#111", color: !allKpiSet || locked || submitting ? "#9ca3af" : "#fff", fontSize: 16, fontWeight: 700, cursor: allKpiSet && !locked && !submitting ? "pointer" : "default", fontFamily: "inherit" }}>
               {submitting ? "Saving..." : saved ? "\u2713 Saved!" : existing ? "Update" : "Submit"}
@@ -1020,15 +1106,19 @@ function WeeklyMember({ uid, m, wci, dci, cmt, kpiP, pto, save, tz }) {
 // ═══════════════════════════════════════════════════════════
 // CEO DASHBOARD
 // ═══════════════════════════════════════════════════════════
-function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cmt, kpiP, stuckRes, seen, pto, save, cfg, saveCfg, switchCompany, logout }) {
+function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cmt, kpiP, stuckRes, seen, pto, save, cfg, saveCfg, switchCompany, logout, hash, navigate }) {
   const TEAMS = comp.teams;
   const CW = getCW();
-  const [view, setView] = useState("daily");
+  const route = parseRoute(hash);
+  const view = ["daily", "weekly", "heatmap"].includes(route.view) ? route.view : "daily";
+  const setView = useCallback((v) => { navigate(v); }, [navigate]);
   const [wIdx, setWIdx] = useState(() => getCW());
   const [filter, setFilter] = useState(null);
-  const [drillPerson, setDrillPerson] = useState(null);
+  const drillPerson = route.sub === "drill" && route.param ? route.param : null;
+  const setDrillPerson = useCallback((id) => { if (id) navigate(`${view}/drill/${id}`); else navigate(view); }, [navigate, view]);
   const [copied, setCopied] = useState(null);
-  const [showAdmin, setShowAdmin] = useState(false);
+  const showAdmin = route.view === "admin";
+  const setShowAdmin = useCallback((v) => { if (v) navigate("admin"); else navigate("daily"); }, [navigate]);
   const [viewAsMember, setViewAsMember] = useState(null);
   const [viewAsOpen, setViewAsOpen] = useState(false);
 
@@ -1117,8 +1207,7 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
   // ─── View as member ───
   if (viewAsMember) {
     return (
-      <div style={{ fontFamily: "'DM Sans',-apple-system,sans-serif" }}>
-        <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&display=swap" rel="stylesheet" />
+      <div style={{ fontFamily: S.font }}>
         <div style={{ background: "#111", color: "#fff", padding: "8px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 11, background: "rgba(255,255,255,0.15)", padding: "2px 8px", borderRadius: 4, fontWeight: 600 }}>PREVIEW</span>
@@ -1136,8 +1225,7 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
   }
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", fontFamily: "'DM Sans',-apple-system,sans-serif", background: "#fafafa", color: "#111" }}>
-      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&display=swap" rel="stylesheet" />
+    <div style={{ display: "flex", minHeight: "100vh", fontFamily: S.font, background: S.bg, color: S.textPrimary }}>
 
       {/* Sidebar */}
       <div style={{ width: 200, background: "#fff", borderRight: "1px solid #e5e7eb", padding: "20px 0", flexShrink: 0, display: "flex", flexDirection: "column" }}>
@@ -1158,7 +1246,7 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
         )}
 
         <SideLabel>View</SideLabel>
-        {[["daily", "\ud83d\udccb Daily Feed"], ["weekly", "\u25ce Weekly KPIs"], ["heatmap", "\u25a6 Heatmap"]].map(([id, l]) => (<SideBtn key={id} active={view === id} onClick={() => { setView(id); setDrillPerson(null); }}>{l}</SideBtn>))}
+        {[["daily", "\ud83d\udccb Daily Feed"], ["weekly", "\u25ce Weekly KPIs"], ["heatmap", "\u25a6 Heatmap"]].map(([id, l]) => (<SideBtn key={id} active={view === id} onClick={() => navigate(id)}>{l}</SideBtn>))}
 
         {Object.keys(TEAMS).length > 0 && <>
           <SideLabel>Teams</SideLabel>
@@ -1166,7 +1254,7 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
         </>}
 
         <div style={{ flex: 1 }} />
-        {stuckCount > 0 && view !== "daily" && <div style={{ padding: "10px 20px", borderTop: "1px solid #f3f4f6", fontSize: 12, color: "#dc2626", fontWeight: 600, cursor: "pointer" }} onClick={() => { setView("daily"); setDrillPerson(null); }}>{"\ud83d\udea8"} {stuckCount} stuck</div>}
+        {stuckCount > 0 && view !== "daily" && <div style={{ padding: "10px 20px", borderTop: "1px solid #f3f4f6", fontSize: 12, color: "#dc2626", fontWeight: 600, cursor: "pointer" }} onClick={() => navigate("daily")}>{"\ud83d\udea8"} {stuckCount} stuck</div>}
         <div style={{ padding: "6px 12px", borderTop: "1px solid #f3f4f6" }}>
           <button onClick={() => setShowAdmin(true)} style={{ width: "100%", padding: "7px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", fontSize: 12, cursor: "pointer", fontFamily: "inherit", color: "#6b7280", marginBottom: 4 }}>{"\u2699"} Manage</button>
           <div style={{ position: "relative", marginBottom: 4 }}>
@@ -1235,9 +1323,9 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
                     </div>
                     {d.entry ? (
                       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                        <div><div style={{ fontSize: 11, fontWeight: 600, color: "#10b981", marginBottom: 2 }}>WORKED</div><div style={{ fontSize: 13, color: "#374151", whiteSpace: "pre-line" }}>{d.entry.worked}</div></div>
-                        {d.entry.didnt && <div><div style={{ fontSize: 11, fontWeight: 600, color: "#ef4444", marginBottom: 2 }}>DIDN'T WORK {"\u2192"} CHANGING</div><div style={{ fontSize: 13, color: "#374151", whiteSpace: "pre-line" }}>{d.entry.didnt}</div></div>}
-                        {d.entry.plan && <div><div style={{ fontSize: 11, fontWeight: 600, color: "#6366f1", marginBottom: 2 }}>PLAN</div><div style={{ fontSize: 13, color: "#374151", whiteSpace: "pre-line" }}>{d.entry.plan}</div></div>}
+                        <div><div style={{ fontSize: 11, fontWeight: 600, color: "#10b981", marginBottom: 2 }}>WORKED</div><div style={{ fontSize: 13, color: "#374151", whiteSpace: "pre-line", overflowWrap: "break-word", wordBreak: "break-word" }}>{d.entry.worked}</div></div>
+                        {d.entry.didnt && <div><div style={{ fontSize: 11, fontWeight: 600, color: "#ef4444", marginBottom: 2 }}>DIDN'T WORK {"\u2192"} CHANGING</div><div style={{ fontSize: 13, color: "#374151", whiteSpace: "pre-line", overflowWrap: "break-word", wordBreak: "break-word" }}>{d.entry.didnt}</div></div>}
+                        {d.entry.plan && <div><div style={{ fontSize: 11, fontWeight: 600, color: "#6366f1", marginBottom: 2 }}>PLAN</div><div style={{ fontSize: 13, color: "#374151", whiteSpace: "pre-line", overflowWrap: "break-word", wordBreak: "break-word" }}>{d.entry.plan}</div></div>}
                         {d.cmt && <div style={{ fontSize: 12, color: "#6366f1", marginTop: 4 }}>{"\ud83d\udcac"} {d.cmt.text}</div>}
                         {d.entry && !d.cmt && <DrillCmtInput onSave={(txt) => saveDailyCmt(drillData.m.id, d.date, txt)} />}
                       </div>
@@ -1495,11 +1583,10 @@ function AdminPanel({ cfg, saveCfg, compId, comp, onClose }) {
   };
 
   return (
-    <div style={{ minHeight: "100vh", fontFamily: "'DM Sans',-apple-system,sans-serif", background: "#fafafa" }}>
-      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&display=swap" rel="stylesheet" />
-      <div style={{ background: "#fff", borderBottom: "1px solid #e5e7eb", padding: "12px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+    <div style={{ minHeight: "100vh", fontFamily: S.font, background: S.bg }}>
+      <div style={{ background: S.bgWhite, borderBottom: `1px solid ${S.border}`, padding: "12px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 14, color: "#6b7280", cursor: "pointer", fontFamily: "inherit" }}>{"\u2190"} Back</button>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 14, color: S.textMuted, cursor: "pointer", fontFamily: "inherit" }}>{"\u2190"} Back</button>
           <span style={{ fontSize: 16, fontWeight: 700 }}>{"\u2699"} Manage — {comp.name}</span>
         </div>
       </div>
@@ -1742,14 +1829,14 @@ function DailyCardCeo({ entry: e, date, tz, onDrill, saveCmt, nudge, copied }) {
 
       {e.daily ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <div><div style={{ fontSize: 11, fontWeight: 600, color: "#10b981", marginBottom: 3, textTransform: "uppercase", letterSpacing: 0.5 }}>What worked</div><div style={{ fontSize: 13, color: "#374151", lineHeight: 1.5, whiteSpace: "pre-line" }}>{e.daily.worked}</div></div>
-          {e.daily.didnt && <div><div style={{ fontSize: 11, fontWeight: 600, color: "#ef4444", marginBottom: 3, textTransform: "uppercase", letterSpacing: 0.5 }}>Didn't work {"\u2192"} changing</div><div style={{ fontSize: 13, color: "#374151", lineHeight: 1.5, whiteSpace: "pre-line" }}>{e.daily.didnt}</div></div>}
-          {e.daily.plan && <div><div style={{ fontSize: 11, fontWeight: 600, color: "#6366f1", marginBottom: 3, textTransform: "uppercase", letterSpacing: 0.5 }}>Tomorrow's plan</div><div style={{ fontSize: 13, color: "#374151", lineHeight: 1.5, whiteSpace: "pre-line" }}>{e.daily.plan}</div></div>}
+          <div><div style={{ fontSize: 11, fontWeight: 600, color: "#10b981", marginBottom: 3, textTransform: "uppercase", letterSpacing: 0.5 }}>What worked</div><div style={{ fontSize: 13, color: "#374151", lineHeight: 1.5, whiteSpace: "pre-line", overflowWrap: "break-word", wordBreak: "break-word" }}>{e.daily.worked}</div></div>
+          {e.daily.didnt && <div><div style={{ fontSize: 11, fontWeight: 600, color: "#ef4444", marginBottom: 3, textTransform: "uppercase", letterSpacing: 0.5 }}>Didn't work {"\u2192"} changing</div><div style={{ fontSize: 13, color: "#374151", lineHeight: 1.5, whiteSpace: "pre-line", overflowWrap: "break-word", wordBreak: "break-word" }}>{e.daily.didnt}</div></div>}
+          {e.daily.plan && <div><div style={{ fontSize: 11, fontWeight: 600, color: "#6366f1", marginBottom: 3, textTransform: "uppercase", letterSpacing: 0.5 }}>Tomorrow's plan</div><div style={{ fontSize: 13, color: "#374151", lineHeight: 1.5, whiteSpace: "pre-line", overflowWrap: "break-word", wordBreak: "break-word" }}>{e.daily.plan}</div></div>}
           <div style={{ borderTop: "1px solid #f3f4f6", paddingTop: 10 }}>
             {cmtOpen ? (
               <div style={{ display: "flex", gap: 8 }}>
-                <input value={cmtText} onChange={ev => setCmtText(ev.target.value)} placeholder="Feedback\u2026" autoFocus
-                  style={{ flex: 1, padding: "7px 12px", borderRadius: 8, border: "1.5px solid #e5e7eb", fontSize: 13, fontFamily: "inherit", outline: "none" }}
+                <input value={cmtText} onChange={ev => setCmtText(ev.target.value)} placeholder="Feedback\u2026" autoFocus maxLength={LIMITS.feedback}
+                  style={{ flex: 1, padding: "7px 12px", borderRadius: 8, border: `1.5px solid ${S.border}`, fontSize: 13, fontFamily: "inherit", outline: "none" }}
                   onKeyDown={ev => { if (ev.key === "Enter" && cmtText.trim()) { saveCmt(e.id, date, cmtText.trim()); setCmtOpen(false); } }} />
                 <button onClick={() => { if (cmtText.trim()) { saveCmt(e.id, date, cmtText.trim()); setCmtOpen(false); } }} style={{ padding: "7px 14px", borderRadius: 8, border: "none", background: "#6366f1", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Send</button>
                 <button onClick={() => setCmtOpen(false)} style={{ background: "none", border: "none", fontSize: 14, color: "#9ca3af", cursor: "pointer" }}>{"\u00d7"}</button>
@@ -1784,8 +1871,8 @@ function StuckCeoItem({ entry: e, date, onReply }) {
       {e.daily?.stuck && e.daily?.plan && <div style={{ fontSize: 12, color: "#374151", marginBottom: 6, paddingLeft: 30 }}>{e.daily.plan}</div>}
       {open ? (
         <div style={{ display: "flex", gap: 6, paddingLeft: 30 }}>
-          <input value={reply} onChange={ev => setReply(ev.target.value)} placeholder="Reply\u2026" autoFocus
-            style={{ flex: 1, padding: "6px 10px", borderRadius: 6, border: "1.5px solid #e5e7eb", fontSize: 12, fontFamily: "inherit", outline: "none" }}
+          <input value={reply} onChange={ev => setReply(ev.target.value)} placeholder="Reply\u2026" autoFocus maxLength={LIMITS.stuckReply}
+            style={{ flex: 1, padding: "6px 10px", borderRadius: 6, border: `1.5px solid ${S.border}`, fontSize: 12, fontFamily: "inherit", outline: "none" }}
             onKeyDown={ev => { if (ev.key === "Enter" && reply.trim()) { onReply(e.id, date, reply.trim()); setReply(""); setOpen(false); } }} />
           <button onClick={() => { if (reply.trim()) { onReply(e.id, date, reply.trim()); setReply(""); setOpen(false); } }} style={{ padding: "6px 12px", borderRadius: 6, border: "none", background: "#dc2626", color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Send</button>
         </div>
@@ -1808,10 +1895,10 @@ function MemberStuckReply({ uid, date, stuckRes, save }) {
   };
   return (
     <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-      <input value={text} onChange={e => setText(e.target.value)} placeholder="Reply\u2026"
-        style={{ flex: 1, padding: "6px 10px", borderRadius: 6, border: "1.5px solid #e5e7eb", fontSize: 12, fontFamily: "inherit", outline: "none" }}
+      <input value={text} onChange={e => setText(e.target.value)} placeholder="Reply\u2026" maxLength={LIMITS.stuckReply}
+        style={{ flex: 1, padding: "6px 10px", borderRadius: 6, border: `1.5px solid ${S.border}`, fontSize: 12, fontFamily: "inherit", outline: "none" }}
         onKeyDown={e => { if (e.key === "Enter") submit(); }} />
-      <button onClick={submit} disabled={!text.trim()} style={{ padding: "6px 12px", borderRadius: 6, border: "none", background: text.trim() ? "#111" : "#e5e7eb", color: text.trim() ? "#fff" : "#9ca3af", fontSize: 11, fontWeight: 600, cursor: text.trim() ? "pointer" : "default", fontFamily: "inherit" }}>Send</button>
+      <button onClick={submit} disabled={!text.trim()} style={{ padding: "6px 12px", borderRadius: 6, border: "none", background: text.trim() ? "#111" : "#e5e7eb", color: text.trim() ? "#fff" : S.textFaint, fontSize: 11, fontWeight: 600, cursor: text.trim() ? "pointer" : "default", fontFamily: "inherit" }}>Send</button>
     </div>
   );
 }
@@ -1822,7 +1909,7 @@ function DrillCmtInput({ onSave }) {
   const [text, setText] = useState("");
   if (!open) return <button onClick={() => setOpen(true)} style={{ background: "none", border: "none", fontSize: 11, color: "#6366f1", cursor: "pointer", fontFamily: "inherit", fontWeight: 500, marginTop: 4, padding: 0 }}>{"\ud83d\udcac"} Add feedback</button>;
   return <div style={{ display: "flex", gap: 6, marginTop: 6 }} onClick={e => e.stopPropagation()}>
-    <input value={text} onChange={e => setText(e.target.value)} placeholder="Feedback\u2026" autoFocus style={{ flex: 1, padding: "5px 10px", borderRadius: 6, border: "1.5px solid #e5e7eb", fontSize: 12, fontFamily: "inherit", outline: "none" }} onKeyDown={e => { if (e.key === "Enter" && text.trim()) { onSave(text.trim()); setOpen(false); } }} />
+    <input value={text} onChange={e => setText(e.target.value)} placeholder="Feedback\u2026" autoFocus maxLength={LIMITS.feedback} style={{ flex: 1, padding: "5px 10px", borderRadius: 6, border: `1.5px solid ${S.border}`, fontSize: 12, fontFamily: "inherit", outline: "none" }} onKeyDown={e => { if (e.key === "Enter" && text.trim()) { onSave(text.trim()); setOpen(false); } }} />
     <button onClick={() => { if (text.trim()) { onSave(text.trim()); setOpen(false); } }} style={{ padding: "5px 10px", borderRadius: 6, border: "none", background: "#6366f1", color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Send</button>
     <button onClick={() => setOpen(false)} style={{ background: "none", border: "none", fontSize: 13, color: "#9ca3af", cursor: "pointer" }}>{"\u00d7"}</button>
   </div>;
@@ -1835,11 +1922,11 @@ function InlineCmt({ existingText, onSave }) {
   return (
     <div style={{ display: "flex", gap: 8, alignItems: "center" }} onClick={e => e.stopPropagation()}>
       {open ? <>
-        <input value={text} onChange={e => setText(e.target.value)} placeholder="Feedback\u2026" autoFocus
-          style={{ flex: 1, padding: "7px 12px", borderRadius: 8, border: "1.5px solid #e5e7eb", fontSize: 13, fontFamily: "inherit", outline: "none" }}
+        <input value={text} onChange={e => setText(e.target.value)} placeholder="Feedback\u2026" autoFocus maxLength={LIMITS.feedback}
+          style={{ flex: 1, padding: "7px 12px", borderRadius: 8, border: `1.5px solid ${S.border}`, fontSize: 13, fontFamily: "inherit", outline: "none" }}
           onKeyDown={e => { if (e.key === "Enter" && text.trim()) { onSave(text.trim()); setOpen(false); } }} />
         <button onClick={() => { if (text.trim()) { onSave(text.trim()); setOpen(false); } }} style={{ padding: "7px 14px", borderRadius: 8, border: "none", background: "#6366f1", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Send</button>
-        <button onClick={() => setOpen(false)} style={{ background: "none", border: "none", fontSize: 14, color: "#9ca3af", cursor: "pointer" }}>{"\u00d7"}</button>
+        <button onClick={() => setOpen(false)} style={{ background: "none", border: "none", fontSize: 14, color: S.textFaint, cursor: "pointer" }}>{"\u00d7"}</button>
       </> : (
         <button onClick={() => { setText(existingText || ""); setOpen(true); }} style={{ background: "none", border: "none", fontSize: 12, color: "#6366f1", cursor: "pointer", fontFamily: "inherit", fontWeight: 500 }}>
           {existingText ? `\ud83d\udcac "${existingText}" \u00b7 Edit` : "\ud83d\udcac Feedback"}
