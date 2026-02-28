@@ -1561,6 +1561,39 @@ function AdminPanel({ cfg, saveCfg, compId, comp, onClose }) {
   const [editingKpis, setEditingKpis] = useState(null);
   const [editKpiLines, setEditKpiLines] = useState([""]);
 
+  // Reminders tab state
+  const [reminderCfg, setReminderCfg] = useState({ enabled: false, dailyEnabled: true, weeklyEnabled: true, pausedMembers: {} });
+  const [reminderLog, setReminderLog] = useState([]);
+  const [logLoaded, setLogLoaded] = useState(false);
+  const [logTypeFilter, setLogTypeFilter] = useState("all"); // "all" | "daily" | "weekly"
+  const [logStatusFilter, setLogStatusFilter] = useState("all"); // "all" | "sent" | "failed"
+  const [logLimit, setLogLimit] = useState(50);
+
+  const reminderCfgKey = `acct-v9-reminder-cfg-${compId}`;
+  const reminderLogKey = `acct-v9-reminder-log-${compId}`;
+
+  useEffect(() => {
+    if (tab !== "reminders") return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await window.storage.get(reminderCfgKey);
+        if (!cancelled && r?.value) setReminderCfg(JSON.parse(r.value));
+      } catch {}
+      try {
+        const r = await window.storage.get(reminderLogKey);
+        if (!cancelled && r?.value) setReminderLog(JSON.parse(r.value));
+      } catch {}
+      if (!cancelled) setLogLoaded(true);
+    })();
+    return () => { cancelled = true; };
+  }, [tab, reminderCfgKey, reminderLogKey]);
+
+  const saveReminderCfg = async (newCfg) => {
+    setReminderCfg(newCfg);
+    await window.storage.set(reminderCfgKey, JSON.stringify(newCfg));
+  };
+
   const addTeam = async () => {
     if (!newTeamName.trim()) return;
     const tid = genId();
@@ -1661,7 +1694,7 @@ function AdminPanel({ cfg, saveCfg, compId, comp, onClose }) {
       <div style={{ maxWidth: 640, margin: "0 auto", padding: "24px 20px" }}>
         {/* Tabs */}
         <div style={{ display: "flex", gap: 2, marginBottom: 24, background: "#e5e7eb", borderRadius: 10, padding: 3 }}>
-          {[["teams", "Teams & Members"], ["companies", "Companies"]].map(([id, l]) => (
+          {[["teams", "Teams & Members"], ["companies", "Companies"], ["reminders", "Reminders"]].map(([id, l]) => (
             <button key={id} onClick={() => setTab(id)} style={{ flex: 1, padding: "9px 0", borderRadius: 8, border: "none", cursor: "pointer", fontFamily: "inherit", background: tab === id ? "#fff" : "transparent", color: tab === id ? "#111" : "#6b7280", fontSize: 14, fontWeight: tab === id ? 600 : 400, boxShadow: tab === id ? "0 1px 2px rgba(0,0,0,0.06)" : "none" }}>{l}</button>
           ))}
         </div>
@@ -1821,6 +1854,186 @@ function AdminPanel({ cfg, saveCfg, compId, comp, onClose }) {
               <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>Email: <span style={{ color: "#111", fontWeight: 500 }}>{cfg.ceoEmail}</span></div>
               <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 12 }}>Password: <span style={{ color: "#111", fontWeight: 500 }}>••••••</span></div>
               <CeoPasswordChange cfg={cfg} saveCfg={saveCfg} />
+            </div>
+          </>
+        )}
+
+        {/* ─── Reminders Tab ─── */}
+        {tab === "reminders" && (
+          <>
+            {/* Section 1: Global Controls */}
+            <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "16px", marginBottom: 16 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>Auto-Reminders</div>
+              <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 16 }}>Automatically email team members who miss their daily checkin or weekly KPI submission.</div>
+
+              {/* Master toggle */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #f3f4f6" }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>Auto-Reminders</div>
+                  <div style={{ fontSize: 11, color: "#9ca3af" }}>Master switch for all email reminders</div>
+                </div>
+                <button onClick={() => saveReminderCfg({ ...reminderCfg, enabled: !reminderCfg.enabled })}
+                  style={{ width: 44, height: 24, borderRadius: 12, border: "none", background: reminderCfg.enabled ? "#6366f1" : "#d1d5db", cursor: "pointer", position: "relative", transition: "background 0.2s" }}>
+                  <span style={{ position: "absolute", top: 3, left: reminderCfg.enabled ? 23 : 3, width: 18, height: 18, borderRadius: 9, background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.15)", transition: "left 0.2s" }} />
+                </button>
+              </div>
+
+              {/* Daily toggle */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #f3f4f6", opacity: reminderCfg.enabled ? 1 : 0.4 }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>Daily reminders</div>
+                  <div style={{ fontSize: 11, color: "#9ca3af" }}>Sent at 6 PM member local time</div>
+                </div>
+                <button onClick={() => { if (reminderCfg.enabled) saveReminderCfg({ ...reminderCfg, dailyEnabled: !reminderCfg.dailyEnabled }); }}
+                  style={{ width: 44, height: 24, borderRadius: 12, border: "none", background: reminderCfg.dailyEnabled ? "#6366f1" : "#d1d5db", cursor: reminderCfg.enabled ? "pointer" : "default", position: "relative", transition: "background 0.2s" }}>
+                  <span style={{ position: "absolute", top: 3, left: reminderCfg.dailyEnabled ? 23 : 3, width: 18, height: 18, borderRadius: 9, background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.15)", transition: "left 0.2s" }} />
+                </button>
+              </div>
+
+              {/* Weekly toggle */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", opacity: reminderCfg.enabled ? 1 : 0.4 }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>Weekly reminders</div>
+                  <div style={{ fontSize: 11, color: "#9ca3af" }}>Sent Saturday 10 AM member local time</div>
+                </div>
+                <button onClick={() => { if (reminderCfg.enabled) saveReminderCfg({ ...reminderCfg, weeklyEnabled: !reminderCfg.weeklyEnabled }); }}
+                  style={{ width: 44, height: 24, borderRadius: 12, border: "none", background: reminderCfg.weeklyEnabled ? "#6366f1" : "#d1d5db", cursor: reminderCfg.enabled ? "pointer" : "default", position: "relative", transition: "background 0.2s" }}>
+                  <span style={{ position: "absolute", top: 3, left: reminderCfg.weeklyEnabled ? 23 : 3, width: 18, height: 18, borderRadius: 9, background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.15)", transition: "left 0.2s" }} />
+                </button>
+              </div>
+            </div>
+
+            {/* Section 2: Per-Member Pause List */}
+            <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", marginBottom: 16, overflow: "hidden" }}>
+              <div style={{ padding: "12px 16px", borderBottom: "1px solid #f3f4f6" }}>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>Per-Member Controls</div>
+                <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>Pause reminders for individual team members.</div>
+              </div>
+              {Object.entries(comp.teams).map(([tid, team]) => (
+                <div key={tid}>
+                  <div style={{ padding: "8px 16px", fontSize: 10, fontWeight: 600, color: "#9ca3af", textTransform: "uppercase", letterSpacing: 0.5, background: "#f9fafb", borderBottom: "1px solid #f3f4f6" }}>{team.name}</div>
+                  {team.members.map(m => {
+                    const isPaused = !!reminderCfg.pausedMembers?.[m.id];
+                    return (
+                      <div key={m.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", borderBottom: "1px solid #f9fafb" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <Av i={m.av} s={28} />
+                          <div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <span style={{ fontSize: 13, fontWeight: 600 }}>{m.name}</span>
+                              {isPaused && <span style={{ fontSize: 10, fontWeight: 600, color: "#b45309", background: "#fffbeb", border: "1px solid #fde68a", padding: "1px 6px", borderRadius: 4 }}>PAUSED</span>}
+                            </div>
+                            <div style={{ fontSize: 11, color: "#9ca3af" }}>{m.email}</div>
+                          </div>
+                        </div>
+                        <button onClick={async () => {
+                          const next = { ...reminderCfg, pausedMembers: { ...reminderCfg.pausedMembers } };
+                          if (isPaused) { delete next.pausedMembers[m.id]; }
+                          else { next.pausedMembers[m.id] = { pausedAt: new Date().toISOString() }; }
+                          await saveReminderCfg(next);
+                        }}
+                          style={{ fontSize: 11, fontWeight: 600, padding: "5px 14px", borderRadius: 6, border: "1px solid", borderColor: isPaused ? "#6366f1" : "#fde68a", background: isPaused ? "#eef2ff" : "#fffbeb", color: isPaused ? "#6366f1" : "#b45309", cursor: "pointer", fontFamily: "inherit" }}>
+                          {isPaused ? "Resume" : "Pause"}
+                        </button>
+                      </div>
+                    );
+                  })}
+                  {team.members.length === 0 && <div style={{ padding: "12px 16px", fontSize: 12, color: "#9ca3af" }}>No members</div>}
+                </div>
+              ))}
+              {Object.keys(comp.teams).length === 0 && <div style={{ padding: "16px", textAlign: "center", fontSize: 12, color: "#9ca3af" }}>No teams yet</div>}
+            </div>
+
+            {/* Section 3: Email Log */}
+            <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", overflow: "hidden" }}>
+              <div style={{ padding: "12px 16px", borderBottom: "1px solid #f3f4f6", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>Email Log</div>
+              </div>
+
+              {/* Filters */}
+              <div style={{ padding: "10px 16px", borderBottom: "1px solid #f3f4f6", display: "flex", gap: 16, alignItems: "center" }}>
+                <div style={{ display: "flex", gap: 4 }}>
+                  {[["all", "All"], ["daily", "Daily"], ["weekly", "Weekly"]].map(([v, l]) => (
+                    <button key={v} onClick={() => { setLogTypeFilter(v); setLogLimit(50); }}
+                      style={{ fontSize: 11, fontWeight: logTypeFilter === v ? 600 : 400, padding: "4px 10px", borderRadius: 6, border: "1px solid", borderColor: logTypeFilter === v ? "#6366f1" : "#e5e7eb", background: logTypeFilter === v ? "#eef2ff" : "#fff", color: logTypeFilter === v ? "#6366f1" : "#6b7280", cursor: "pointer", fontFamily: "inherit" }}>{l}</button>
+                  ))}
+                </div>
+                <div style={{ display: "flex", gap: 4 }}>
+                  {[["all", "All"], ["sent", "Sent"], ["failed", "Failed"]].map(([v, l]) => (
+                    <button key={v} onClick={() => { setLogStatusFilter(v); setLogLimit(50); }}
+                      style={{ fontSize: 11, fontWeight: logStatusFilter === v ? 600 : 400, padding: "4px 10px", borderRadius: 6, border: "1px solid", borderColor: logStatusFilter === v ? "#6366f1" : "#e5e7eb", background: logStatusFilter === v ? "#eef2ff" : "#fff", color: logStatusFilter === v ? "#6366f1" : "#6b7280", cursor: "pointer", fontFamily: "inherit" }}>{l}</button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Log entries */}
+              {(() => {
+                const filtered = [...reminderLog]
+                  .reverse()
+                  .filter(e => logTypeFilter === "all" || e.type === logTypeFilter)
+                  .filter(e => logStatusFilter === "all" || e.status === logStatusFilter);
+                const visible = filtered.slice(0, logLimit);
+
+                if (!logLoaded) return <div style={{ padding: "24px 16px", textAlign: "center", fontSize: 12, color: "#9ca3af" }}>Loading...</div>;
+
+                if (filtered.length === 0) return (
+                  <div style={{ padding: "32px 16px", textAlign: "center" }}>
+                    <div style={{ fontSize: 13, color: "#9ca3af", marginBottom: 4 }}>No reminder emails sent yet.</div>
+                    <div style={{ fontSize: 11, color: "#d1d5db" }}>Emails will appear here once reminders are enabled and a team member misses a checkin.</div>
+                  </div>
+                );
+
+                return (
+                  <>
+                    {/* Table header */}
+                    <div style={{ display: "flex", padding: "8px 16px", fontSize: 10, fontWeight: 600, color: "#9ca3af", textTransform: "uppercase", letterSpacing: 0.5, borderBottom: "1px solid #f3f4f6", background: "#f9fafb" }}>
+                      <div style={{ flex: 2 }}>Sent At</div>
+                      <div style={{ flex: 1 }}>Type</div>
+                      <div style={{ flex: 2 }}>Employee</div>
+                      <div style={{ flex: 1.5 }}>For Date</div>
+                      <div style={{ flex: 1, textAlign: "right" }}>Status</div>
+                    </div>
+
+                    {visible.map(entry => (
+                      <div key={entry.id} style={{ display: "flex", alignItems: "center", padding: "9px 16px", borderBottom: "1px solid #f9fafb", fontSize: 12 }}>
+                        <div style={{ flex: 2, color: "#6b7280" }}>
+                          {new Date(entry.sentAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}{" "}
+                          {new Date(entry.sentAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 4, background: entry.type === "daily" ? "#eef2ff" : "#f0fdf4", color: entry.type === "daily" ? "#6366f1" : "#10b981" }}>
+                            {entry.type === "daily" ? "Daily" : "Weekly"}
+                          </span>
+                        </div>
+                        <div style={{ flex: 2, fontWeight: 500, color: "#374151" }}>{entry.memberName}</div>
+                        <div style={{ flex: 1.5, color: "#6b7280" }}>
+                          {new Date(entry.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                        </div>
+                        <div style={{ flex: 1, textAlign: "right" }}>
+                          {entry.status === "sent" ? (
+                            <span style={{ fontSize: 11, fontWeight: 600, color: "#10b981" }}>{"\u2713"} Sent</span>
+                          ) : (
+                            <span style={{ fontSize: 11, fontWeight: 600, color: "#ef4444", cursor: entry.error ? "help" : "default" }} title={entry.error || ""}>{"\u2717"} Failed</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+
+                    {filtered.length > logLimit && (
+                      <div style={{ padding: "12px 16px", textAlign: "center" }}>
+                        <button onClick={() => setLogLimit(logLimit + 50)}
+                          style={{ fontSize: 12, fontWeight: 600, padding: "7px 20px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", color: "#6b7280", cursor: "pointer", fontFamily: "inherit" }}>
+                          Load more ({filtered.length - logLimit} remaining)
+                        </button>
+                      </div>
+                    )}
+
+                    <div style={{ padding: "8px 16px", fontSize: 10, color: "#d1d5db", textAlign: "right", background: "#f9fafb" }}>
+                      {filtered.length} {filtered.length === 1 ? "entry" : "entries"}
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           </>
         )}
