@@ -1,30 +1,45 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 
 // ─── Dates & Weeks ─────────────────────────────────────────
-const NOW = new Date();
-const TODAY = new Date(NOW.getFullYear(), NOW.getMonth(), NOW.getDate());
 const GRACE_H = 48;
+
+function getNow() { return new Date(); }
+function getToday() { const n = getNow(); return new Date(n.getFullYear(), n.getMonth(), n.getDate()); }
+
+function useNow(interval = 60000) {
+  const [, setTick] = useState(0);
+  useEffect(() => { const id = setInterval(() => setTick(t => t + 1), interval); return () => clearInterval(id); }, [interval]);
+}
 
 function genWeeks() {
   const w = []; const s = new Date(2026, 0, 5);
-  for (let i = 0; i < 16; i++) {
+  const now = getNow();
+  const endDate = new Date(now); endDate.setDate(endDate.getDate() + 28);
+  let i = 0;
+  while (true) {
     const mon = new Date(s); mon.setDate(mon.getDate() + i * 7);
+    if (mon > endDate) break;
     const fri = new Date(mon); fri.setDate(fri.getDate() + 4); fri.setHours(23, 59, 59);
     const gr = new Date(fri); gr.setHours(gr.getHours() + GRACE_H);
-    w.push({ id: `w${String(i + 1).padStart(2, "0")}`, label: mon.toLocaleDateString("en-US", { month: "short", day: "numeric" }), short: `W${i + 1}`, mon, fri, gr });
+    const monLbl = mon.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    const sameMonth = mon.getMonth() === fri.getMonth();
+    const range = sameMonth
+      ? `${monLbl} – ${fri.getDate()}`
+      : `${monLbl} – ${fri.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+    w.push({ id: `w${String(i + 1).padStart(2, "0")}`, label: monLbl, range, short: `${mon.getMonth() + 1}/${mon.getDate()}`, mon, fri, gr });
+    i++;
   }
   return w;
 }
 const WEEKS = genWeeks();
-function cwIdx() { for (let i = WEEKS.length - 1; i >= 0; i--) { if (NOW >= WEEKS[i].mon) return i; } return 0; }
-const CW = cwIdx();
-const isLocked = i => WEEKS[i] && NOW > WEEKS[i].gr;
-const isOverdue = i => WEEKS[i] && NOW > WEEKS[i].fri && NOW <= WEEKS[i].gr;
-const timeLeft = i => { const d = WEEKS[i]?.fri - NOW; if (!d || d <= 0) return null; const h = Math.floor(d / 36e5); return h >= 24 ? `${Math.floor(h / 24)}d ${h % 24}h` : `${h}h`; };
+function getCW() { const now = getNow(); for (let i = WEEKS.length - 1; i >= 0; i--) { if (now >= WEEKS[i].mon) return i; } return 0; }
+const isLocked = i => { const now = getNow(); return WEEKS[i] && now > WEEKS[i].gr; };
+const isOverdue = i => { const now = getNow(); return WEEKS[i] && now > WEEKS[i].fri && now <= WEEKS[i].gr; };
+const timeLeft = i => { const now = getNow(); const d = WEEKS[i]?.fri - now; if (!d || d <= 0) return null; const h = Math.floor(d / 36e5); return h >= 24 ? `${Math.floor(h / 24)}d ${h % 24}h` : `${h}h`; };
 function isWeekend(d) { const day = d.getDay(); return day === 0 || day === 6; }
 function ds(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
 function dayLabel(s) { return new Date(s + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }); }
-function daysAgo(s) { const diff = Math.floor((TODAY - new Date(s + "T12:00:00")) / 864e5); if (diff === 0) return "Today"; if (diff === 1) return "Yesterday"; return `${diff}d ago`; }
+function daysAgo(s) { const today = getToday(); const diff = Math.floor((today - new Date(s + "T12:00:00")) / 864e5); if (diff === 0) return "Today"; if (diff === 1) return "Yesterday"; return `${diff}d ago`; }
 
 function getWeekdaysBack(count, from) {
   const days = []; const d = new Date(from);
@@ -32,13 +47,12 @@ function getWeekdaysBack(count, from) {
   return days;
 }
 function lastCompletedWeekday() {
-  const d = new Date(TODAY);
-  if (NOW.getHours() < 17) d.setDate(d.getDate() - 1);
+  const d = new Date(getToday());
   while (isWeekend(d)) d.setDate(d.getDate() - 1);
   return ds(d);
 }
-function memberSelectableDays() { return getWeekdaysBack(10, TODAY); }
-function ceoBrowsableDays() { return getWeekdaysBack(7, TODAY).reverse(); }
+function memberSelectableDays() { return getWeekdaysBack(10, getToday()); }
+function ceoBrowsableDays() { return getWeekdaysBack(7, getToday()).reverse(); }
 function weekdaysInWeek(weekIdx) {
   const wk = WEEKS[weekIdx]; if (!wk) return [];
   const days = [];
@@ -75,8 +89,19 @@ function tzLabel(tz) {
 // ─── Utility ──────────────────────────────────────────────
 function genId() { return Math.random().toString(36).slice(2, 8); }
 
+// ─── Password Hashing ────────────────────────────────────
+async function hashPw(pw) {
+  const data = new TextEncoder().encode(pw + ':checkin-v9');
+  const buf = await crypto.subtle.digest('SHA-256', data);
+  return 'sha256:' + Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+async function checkPw(input, stored) {
+  if (stored && stored.startsWith('sha256:')) return await hashPw(input) === stored;
+  return input === stored;
+}
+
 // ─── Streak / Status helpers ──────────────────────────────
-function getWkStreak(uid, wci) { let s = 0; for (let i = CW; i >= 0; i--) { if (wci[`${uid}:${WEEKS[i].id}`]) s++; else break; } return s; }
+function getWkStreak(uid, wci) { const cw = getCW(); let s = 0; for (let i = cw; i >= 0; i--) { if (wci[`${uid}:${WEEKS[i].id}`]) s++; else break; } return s; }
 function resolveWeek(uid, wi, wci) {
   const c = wci[`${uid}:${WEEKS[wi]?.id}`];
   if (c?.kpis) { const done = c.kpis.every(k => k.status); if (!done) return null; return c.kpis.every(k => k.status === "green") ? "green" : "red"; }
@@ -116,8 +141,12 @@ export default function App() {
   const [cfg, setCfg] = useState(null); // { ceoEmail, ceoPw, companies: { id: { name, teams: { id: { name, members: [{ id, name, email, pw, role, av, kpis }] } } } }, users: { email: { compId, memberId } } }
   const [session, setSession] = useState(null); // { type:"ceo"|"member", compId, memberId }
   const [compData, setCompData] = useState({}); // { wci, dci, cmt, kpiP, sr, seen, pto }
+  const compDataRef = useRef(compData);
+  useEffect(() => { compDataRef.current = compData; }, [compData]);
   const [loaded, setLoaded] = useState(false);
   const [saveErr, setSaveErr] = useState(null);
+
+  useNow(60000);
 
   // ─── Load config & session ───
   useEffect(() => {
@@ -151,14 +180,16 @@ export default function App() {
   // ─── Save company operational data ───
   const saveData = useCallback(async (nw, nd, nc, nk, ns, nseen, npto) => {
     if (!session?.compId) return;
-    const a = nw !== undefined ? nw : compData.wci || {};
-    const b = nd !== undefined ? nd : compData.dci || {};
-    const c = nc !== undefined ? nc : compData.cmt || {};
-    const d = nk !== undefined ? nk : compData.kpiP || {};
-    const e = ns !== undefined ? ns : compData.sr || {};
-    const f = nseen !== undefined ? nseen : compData.seen || {};
-    const g = npto !== undefined ? npto : compData.pto || {};
+    const cd = compDataRef.current;
+    const a = nw !== undefined ? nw : cd.wci || {};
+    const b = nd !== undefined ? nd : cd.dci || {};
+    const c = nc !== undefined ? nc : cd.cmt || {};
+    const d = nk !== undefined ? nk : cd.kpiP || {};
+    const e = ns !== undefined ? ns : cd.sr || {};
+    const f = nseen !== undefined ? nseen : cd.seen || {};
+    const g = npto !== undefined ? npto : cd.pto || {};
     const newData = { wci: a, dci: b, cmt: c, kpiP: d, sr: e, seen: f, pto: g };
+    compDataRef.current = newData;
     setCompData(newData);
     setSaveErr(null);
     for (let i = 0; i < 3; i++) {
@@ -167,7 +198,7 @@ export default function App() {
         else await new Promise(r => setTimeout(r, 500 * (i + 1)));
       }
     }
-  }, [session?.compId, compData]);
+  }, [session?.compId]);
 
   // ─── Session management ───
   const login = useCallback(async (sess) => {
@@ -249,12 +280,12 @@ function CeoSetup({ onComplete }) {
   const [ceoPw, setCeoPw] = useState("");
   const [compName, setCompName] = useState("");
 
-  const finish = () => {
+  const finish = async () => {
     if (!ceoEmail.trim() || !ceoPw.trim() || !compName.trim()) return;
     const compId = genId();
     const cfg = {
       ceoEmail: ceoEmail.trim().toLowerCase(),
-      ceoPw: ceoPw.trim(),
+      ceoPw: await hashPw(ceoPw.trim()),
       companies: { [compId]: { name: compName.trim(), teams: {} } },
       users: {},
     };
@@ -313,11 +344,11 @@ function LoginScreen({ cfg, onLogin }) {
   const [pw, setPw] = useState("");
   const [err, setErr] = useState("");
 
-  const submit = () => {
+  const submit = async () => {
     const e = email.trim().toLowerCase();
     if (!e || !pw.trim()) return;
     // CEO login
-    if (e === cfg.ceoEmail && pw === cfg.ceoPw) {
+    if (e === cfg.ceoEmail && await checkPw(pw, cfg.ceoPw)) {
       const firstComp = Object.keys(cfg.companies)[0];
       onLogin({ type: "ceo", compId: firstComp });
       return;
@@ -327,7 +358,7 @@ function LoginScreen({ cfg, onLogin }) {
     if (user) {
       const comp = cfg.companies[user.compId];
       const member = comp && Object.values(comp.teams).flatMap(t => t.members).find(m => m.id === user.memberId);
-      if (member && member.pw === pw) {
+      if (member && await checkPw(pw, member.pw)) {
         onLogin({ type: "member", compId: user.compId, memberId: user.memberId });
         return;
       }
@@ -377,10 +408,11 @@ function MemberDash({ uid, m, getTeam, wci, dci, cmt, kpiP, stuckRes, seen, pto,
 
   const changePw = async () => {
     if (!newPw.trim()) return;
+    const hashed = await hashPw(newPw.trim());
     const comp = cfg.companies[compId];
     const newTeams = {};
     for (const [tid, team] of Object.entries(comp.teams)) {
-      newTeams[tid] = { ...team, members: team.members.map(mem => mem.id === uid ? { ...mem, pw: newPw.trim() } : mem) };
+      newTeams[tid] = { ...team, members: team.members.map(mem => mem.id === uid ? { ...mem, pw: hashed } : mem) };
     }
     await saveCfg({ ...cfg, companies: { ...cfg.companies, [compId]: { ...comp, teams: newTeams } } });
     setNewPw(""); setPwSaved(true); setTimeout(() => { setPwSaved(false); setShowPwChange(false); }, 1500);
@@ -398,18 +430,15 @@ function MemberDash({ uid, m, getTeam, wci, dci, cmt, kpiP, stuckRes, seen, pto,
   const unreadDaily = useMemo(() => Object.keys(cmt).filter(k => k.startsWith(`d:${uid}:`) && !seen[`${uid}:${k}`]).length, [cmt, seen, uid]);
   const unreadWeekly = useMemo(() => Object.keys(cmt).filter(k => k.match(new RegExp(`^${uid}:w`)) && !seen[`${uid}:${k}`]).length, [cmt, seen, uid]);
 
-  const seenSaveRef = React.useRef(null);
-  useEffect(() => {
+  const dismissUnread = useCallback(() => {
     const prefix = tab === "daily" ? `d:${uid}:` : `${uid}:w`;
     const unseen = Object.keys(cmt).filter(k => k.startsWith(prefix) && !seen[`${uid}:${k}`]);
-    const key = unseen.sort().join(",");
-    if (unseen.length > 0 && key !== seenSaveRef.current) {
-      seenSaveRef.current = key;
+    if (unseen.length > 0) {
       const newSeen = { ...seen };
       unseen.forEach(k => { newSeen[`${uid}:${k}`] = true; });
       save(undefined, undefined, undefined, undefined, undefined, newSeen);
     }
-  }, [tab, cmt, uid]);
+  }, [tab, cmt, uid, seen, save]);
 
   return (
     <div style={{ minHeight: "100vh", fontFamily: "'DM Sans',-apple-system,sans-serif", background: "#fafafa", display: "flex", flexDirection: "column" }}>
@@ -460,6 +489,12 @@ function MemberDash({ uid, m, getTeam, wci, dci, cmt, kpiP, stuckRes, seen, pto,
               }}>{l}{unread > 0 && <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#6366f1", display: "inline-block" }} />}</button>
             ))}
           </div>
+          {((unreadDaily > 0 && tab === "daily") || (unreadWeekly > 0 && tab === "weekly")) && (
+            <div style={{ background: "#eef2ff", border: "1px solid #c7d2fe", borderRadius: 10, padding: "10px 16px", marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: 13, color: "#4338ca" }}>{"\ud83d\udcec"} You have new feedback</span>
+              <button onClick={dismissUnread} style={{ padding: "5px 14px", borderRadius: 6, border: "none", background: "#6366f1", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Mark as read</button>
+            </div>
+          )}
           {tab === "daily"
             ? <DailyMember uid={uid} m={m} dci={dci} cmt={cmt} stuckRes={stuckRes} pto={pto} save={save} tz={memberTz} />
             : <WeeklyMember uid={uid} m={m} wci={wci} dci={dci} cmt={cmt} kpiP={kpiP} pto={pto} save={save} tz={memberTz} />
@@ -480,31 +515,61 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
   const [plan, setPlan] = useState("");
   const [stuck, setStuck] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [stuckErr, setStuckErr] = useState(false);
+  const didntRef = useRef(null);
+
+  const draftKey = `checkin-draft:${uid}:${selDate}`;
 
   useEffect(() => {
     if (existing) { setWorked(existing.worked || ""); setDidnt(existing.didnt || ""); setPlan(existing.plan || ""); setStuck(existing.stuck || false); }
-    else { setWorked(""); setDidnt(""); setPlan(""); setStuck(false); }
-    setSaved(false);
+    else {
+      try {
+        const draft = JSON.parse(localStorage.getItem(draftKey));
+        if (draft) { setWorked(draft.worked || ""); setDidnt(draft.didnt || ""); setPlan(draft.plan || ""); setStuck(draft.stuck || false); }
+        else { setWorked(""); setDidnt(""); setPlan(""); setStuck(false); }
+      } catch { setWorked(""); setDidnt(""); setPlan(""); setStuck(false); }
+    }
+    setSaved(false); setStuckErr(false);
   }, [selDate, existing]);
+
+  // Autosave draft
+  useEffect(() => {
+    if (existing) return;
+    if (!worked && !didnt && !plan && !stuck) { try { localStorage.removeItem(draftKey); } catch {} return; }
+    const timeout = setTimeout(() => {
+      try { localStorage.setItem(draftKey, JSON.stringify({ worked, didnt, plan, stuck })); } catch {}
+    }, 500);
+    return () => clearTimeout(timeout);
+  }, [worked, didnt, plan, stuck, draftKey, existing]);
+
+  // Warn before losing unsaved work
+  useEffect(() => {
+    const handler = (e) => { if (worked.trim() && !existing && !saved) { e.preventDefault(); e.returnValue = ''; } };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [worked, existing, saved]);
 
   const submit = async () => {
     if (!worked.trim()) return;
-    if (stuck && !didnt.trim()) return;
+    if (stuck && !didnt.trim()) { setStuckErr(true); didntRef.current?.focus(); return; }
     const key = `${uid}:${selDate}`;
     const isEdit = !!existing;
     const entry = { worked, didnt, plan, stuck, at: new Date().toISOString() };
     if (isEdit) { entry.edited = true; entry.originalAt = existing.originalAt || existing.at; }
     else { entry.originalAt = entry.at; }
     await save(undefined, { ...dci, [key]: entry }, undefined, undefined, undefined, undefined);
+    try { localStorage.removeItem(draftKey); } catch {}
     setSaved(true); setTimeout(() => setSaved(false), 2500);
   };
 
   const dailyCmt = cmt[`d:${uid}:${selDate}`];
   const stuckThread = stuckRes[`${uid}:${selDate}`];
   const isPto = !!pto[`${uid}:${selDate}`];
+  const today = getToday();
+  const canTogglePto = selDate === ds(today);
 
   const recentDays = useMemo(() => {
-    const days = []; const all = getWeekdaysBack(10, new Date(TODAY.getTime() - 864e5));
+    const days = []; const all = getWeekdaysBack(10, new Date(getToday().getTime() - 864e5));
     for (const d of all) { if (d === selDate) continue; const e = dci[`${uid}:${d}`]; if (e) days.push({ date: d, ...e, cmt: cmt[`d:${uid}:${d}`] }); if (days.length >= 5) break; }
     return days;
   }, [uid, dci, cmt, selDate]);
@@ -512,7 +577,7 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
   return (
     <>
       <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "12px 16px", marginBottom: 16 }}>
-        <div style={{ fontSize: 11, color: "#9ca3af", fontWeight: 500, textTransform: "uppercase", letterSpacing: 0.8 }}>{selDate === ds(TODAY) ? "Today" : dayLabel(selDate)}</div>
+        <div style={{ fontSize: 11, color: "#9ca3af", fontWeight: 500, textTransform: "uppercase", letterSpacing: 0.8 }}>{selDate === ds(getToday()) ? "Today" : dayLabel(selDate)}</div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
           <span style={{ fontSize: 18, fontWeight: 700, color: isPto ? "#6366f1" : existing ? "#10b981" : "#f59e0b" }}>{isPto ? "\u2708 PTO" : existing ? "\u2713 Submitted" : "Pending"}</span>
           {existing && isLate(selDate, existing.at, tz) && <LateBadge />}
@@ -543,9 +608,13 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
         </div>
         <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 18, display: "flex", alignItems: "center", gap: 12 }}>
           {dayLabel(selDate)}
-          <button onClick={() => { const k = `${uid}:${selDate}`; const np = { ...pto }; if (np[k]) delete np[k]; else np[k] = true; save(undefined, undefined, undefined, undefined, undefined, undefined, np); }} style={{ fontSize: 11, fontWeight: 500, padding: "3px 10px", borderRadius: 6, border: "1px solid", borderColor: isPto ? "#6366f1" : "#e5e7eb", background: isPto ? "#eef2ff" : "#fff", color: isPto ? "#6366f1" : "#9ca3af", cursor: "pointer", fontFamily: "inherit" }}>
-            {isPto ? "\u2708 PTO (click to remove)" : "\u2708 Mark PTO"}
-          </button>
+          {canTogglePto ? (
+            <button onClick={() => { const k = `${uid}:${selDate}`; const np = { ...pto }; if (np[k]) delete np[k]; else np[k] = true; save(undefined, undefined, undefined, undefined, undefined, undefined, np); }} style={{ fontSize: 11, fontWeight: 500, padding: "3px 10px", borderRadius: 6, border: "1px solid", borderColor: isPto ? "#6366f1" : "#e5e7eb", background: isPto ? "#eef2ff" : "#fff", color: isPto ? "#6366f1" : "#9ca3af", cursor: "pointer", fontFamily: "inherit" }}>
+              {isPto ? "\u2708 PTO (click to remove)" : "\u2708 Mark PTO"}
+            </button>
+          ) : isPto ? (
+            <span style={{ fontSize: 11, fontWeight: 500, padding: "3px 10px", borderRadius: 6, background: "#eef2ff", color: "#6366f1" }}>{"\u2708"} PTO</span>
+          ) : null}
         </div>
 
         {isPto ? (
@@ -565,21 +634,21 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
             <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 5, color: "#ef4444" }}>
               2. What didn't work, and what are you changing? {stuck && <span style={{ color: "#ef4444" }}>*</span>}
             </label>
-            <textarea value={didnt} onChange={e => setDidnt(e.target.value)} rows={2} placeholder=""
-              style={{ width: "100%", padding: "11px 14px", borderRadius: 10, border: `1.5px solid ${stuck && !didnt.trim() ? "#ef4444" : "#e5e7eb"}`, fontSize: 14, fontFamily: "inherit", outline: "none", resize: "vertical", boxSizing: "border-box", lineHeight: 1.5 }} />
-            {stuck && !didnt.trim() && <div style={{ fontSize: 12, color: "#ef4444", marginTop: 4 }}>Required when stuck — what are you changing?</div>}
+            <textarea ref={didntRef} value={didnt} onChange={e => { setDidnt(e.target.value); if (e.target.value.trim()) setStuckErr(false); }} rows={2} placeholder=""
+              style={{ width: "100%", padding: "11px 14px", borderRadius: 10, border: `1.5px solid ${(stuckErr || (stuck && !didnt.trim())) ? "#ef4444" : "#e5e7eb"}`, fontSize: 14, fontFamily: "inherit", outline: "none", resize: "vertical", boxSizing: "border-box", lineHeight: 1.5 }} />
+            {(stuckErr || (stuck && !didnt.trim())) && <div style={{ fontSize: 12, color: "#ef4444", marginTop: 4, fontWeight: 500 }}>{"\u26a0"} Required when stuck — describe what isn't working and what you're changing.</div>}
           </div>
           <div style={{ marginBottom: 16 }}>
             <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 5, color: "#6366f1" }}>3. Plan for tomorrow — stuck on anything?</label>
             <textarea value={plan} onChange={e => setPlan(e.target.value)} rows={2} placeholder=""
               style={{ width: "100%", padding: "11px 14px", borderRadius: 10, border: "1.5px solid #e5e7eb", fontSize: 14, fontFamily: "inherit", outline: "none", resize: "vertical", boxSizing: "border-box", lineHeight: 1.5 }} />
           </div>
-          <button onClick={() => setStuck(!stuck)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderRadius: 10, border: "2px solid", borderColor: stuck ? "#ef4444" : "#e5e7eb", background: stuck ? "#fef2f2" : "#fff", cursor: "pointer", fontFamily: "inherit", width: "100%", marginBottom: 20 }}>
+          <button onClick={() => { const next = !stuck; setStuck(next); if (next && !didnt.trim()) { setStuckErr(true); setTimeout(() => didntRef.current?.focus(), 50); } else { setStuckErr(false); } }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderRadius: 10, border: "2px solid", borderColor: stuck ? "#ef4444" : "#e5e7eb", background: stuck ? "#fef2f2" : "#fff", cursor: "pointer", fontFamily: "inherit", width: "100%", marginBottom: 20 }}>
             <span style={{ fontSize: 18 }}>{stuck ? "\ud83d\udea8" : "\u26aa"}</span>
             <div style={{ textAlign: "left" }}><div style={{ fontSize: 14, fontWeight: 600, color: stuck ? "#dc2626" : "#6b7280" }}>I'm STUCK and need help</div></div>
           </button>
           <button onClick={submit} disabled={!worked.trim()} style={{ width: "100%", padding: "15px", borderRadius: 12, border: "none", background: !worked.trim() ? "#e5e7eb" : saved ? "#10b981" : "#111", color: !worked.trim() ? "#9ca3af" : "#fff", fontSize: 16, fontWeight: 700, cursor: worked.trim() ? "pointer" : "default", fontFamily: "inherit" }}>
-            {saved ? "\u2713 Saved!" : existing ? "Update" : selDate !== ds(TODAY) ? `Submit for ${dayLabel(selDate)}` : "Submit daily update"}
+            {saved ? "\u2713 Saved!" : existing ? "Update" : selDate !== ds(getToday()) ? `Submit for ${dayLabel(selDate)}` : "Submit daily update"}
           </button>
         </>)}
 
@@ -618,7 +687,8 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
 
 // ─── Weekly KPI (Member) ──────────────────────────────────
 function WeeklyMember({ uid, m, wci, dci, cmt, kpiP, pto, save, tz }) {
-  const autoWeek = useMemo(() => { for (let i = CW; i >= 0; i--) { if (!wci[`${uid}:${WEEKS[i].id}`] && !isLocked(i)) return i; } return CW; }, [uid, wci]);
+  const CW = getCW();
+  const autoWeek = useMemo(() => { for (let i = CW; i >= 0; i--) { if (!wci[`${uid}:${WEEKS[i].id}`] && !isLocked(i)) return i; } return CW; }, [uid, wci, CW]);
   const [wIdx, setWIdx] = useState(autoWeek);
   const [kpiStates, setKpiStates] = useState(m.kpis.map(() => ({ status: null, actual: "" })));
   const [challenge, setChallenge] = useState("");
@@ -688,7 +758,7 @@ function WeeklyMember({ uid, m, wci, dci, cmt, kpiP, pto, save, tz }) {
 
       <div style={{ background: "#fff", borderRadius: 16, border: "1px solid #e5e7eb", padding: "22px 20px 26px", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 2 }}>
-          <span style={{ fontSize: 16, fontWeight: 700 }}>Week of {wk.label}</span>
+          <span style={{ fontSize: 16, fontWeight: 700 }}>{wk.range}</span>
           {existing && <span style={{ fontSize: 11, color: "#10b981", fontWeight: 500 }}>{"\u2713"} {fmtTime(existing.at, tz)}</span>}
         </div>
         <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 18 }}>{locked && !existing ? "Auto-red." : "Mark each KPI."}</div>
@@ -736,8 +806,9 @@ function WeeklyMember({ uid, m, wci, dci, cmt, kpiP, pto, save, tz }) {
 // ═══════════════════════════════════════════════════════════
 function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cmt, kpiP, stuckRes, seen, pto, save, cfg, saveCfg, switchCompany, logout }) {
   const TEAMS = comp.teams;
+  const CW = getCW();
   const [view, setView] = useState("daily");
-  const [wIdx, setWIdx] = useState(CW);
+  const [wIdx, setWIdx] = useState(() => getCW());
   const [filter, setFilter] = useState(null);
   const [drillPerson, setDrillPerson] = useState(null);
   const [copied, setCopied] = useState(null);
@@ -1013,7 +1084,7 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
               {view === "weekly" && (
                 <>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                    <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0, letterSpacing: -0.3 }}>Week of {wk.label}</h1>
+                    <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0, letterSpacing: -0.3 }}>{wk.range}</h1>
                     <div style={{ display: "flex", gap: 6 }}>
                       <button onClick={() => setWIdx(Math.max(0, wIdx - 1))} disabled={wIdx === 0} style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", cursor: wIdx > 0 ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, color: "#6b7280" }}>{"\u2190"}</button>
                       <button onClick={() => setWIdx(Math.min(CW, wIdx + 1))} disabled={wIdx === CW} style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", cursor: wIdx < CW ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, color: "#6b7280" }}>{"\u2192"}</button>
@@ -1055,7 +1126,7 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
                   <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: 20, overflow: "auto" }}>
                     <div style={{ display: "grid", gridTemplateColumns: `140px repeat(${vw.length},1fr)`, gap: 3, alignItems: "center" }}>
                       <div />
-                      {vw.map((w, i) => <div key={w.id} style={{ fontSize: 10, color: vs + i === wIdx ? "#111" : "#9ca3af", fontWeight: vs + i === wIdx ? 700 : 400, textAlign: "center" }}>{w.label.split(" ")[1]}</div>)}
+                      {vw.map((w, i) => <div key={w.id} style={{ fontSize: 10, color: vs + i === wIdx ? "#111" : "#9ca3af", fontWeight: vs + i === wIdx ? 700 : 400, textAlign: "center" }}>{w.label}</div>)}
                       {filteredMembers.map(m => (
                         <React.Fragment key={m.id}>
                           <div style={{ fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }} onClick={() => setDrillPerson(m.id)}><Av i={m.av} s={20} />{m.name.split(" ")[0]}</div>
@@ -1087,6 +1158,8 @@ function AdminPanel({ cfg, saveCfg, compId, comp, onClose }) {
   const [kpiLines, setKpiLines] = useState([""]);
   const [newCompName, setNewCompName] = useState("");
   const [copiedCreds, setCopiedCreds] = useState(null);
+  const [editingKpis, setEditingKpis] = useState(null);
+  const [editKpiLines, setEditKpiLines] = useState([""]);
 
   const addTeam = async () => {
     if (!newTeamName.trim()) return;
@@ -1117,7 +1190,8 @@ function AdminPanel({ cfg, saveCfg, compId, comp, onClose }) {
     
     const kpis = kpiLines.map(s => s.trim()).filter(Boolean);
     const av = newMember.name.trim().split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
-    const member = { id: mid, name: newMember.name.trim(), email, pw: newMember.pw || "change-me", role: newMember.role.trim() || "Team member", av, kpis };
+    const rawPw = newMember.pw || "change-me";
+    const member = { id: mid, name: newMember.name.trim(), email, pw: await hashPw(rawPw), role: newMember.role.trim() || "Team member", av, kpis };
     const team = comp.teams[teamId];
     const newTeam = { ...team, members: [...team.members, member] };
     const newCfg = {
@@ -1126,6 +1200,8 @@ function AdminPanel({ cfg, saveCfg, compId, comp, onClose }) {
       companies: { ...cfg.companies, [compId]: { ...comp, teams: { ...comp.teams, [teamId]: newTeam } } },
     };
     await saveCfg(newCfg);
+    navigator.clipboard?.writeText(`Checkin Login\nEmail: ${email}\nPassword: ${rawPw}\n\nSign in and submit your daily updates.`);
+    setCopiedCreds(mid); setTimeout(() => setCopiedCreds(null), 3000);
     setNewMember({ name: "", email: "", role: "", pw: "" });
     setKpiLines([""]);
     setAddingMemberTo(null);
@@ -1144,11 +1220,25 @@ function AdminPanel({ cfg, saveCfg, compId, comp, onClose }) {
     await saveCfg(newCfg);
   };
 
-  const copyCredentials = (member) => {
-    const text = `Checkin Login\nEmail: ${member.email}\nPassword: ${member.pw}\n\nSign in and submit your daily updates.`;
-    navigator.clipboard?.writeText(text);
+  const resetPassword = async (teamId, member) => {
+    const newPw = Math.random().toString(36).slice(2, 10);
+    const hashedPw = await hashPw(newPw);
+    const team = comp.teams[teamId];
+    const newTeam = { ...team, members: team.members.map(m => m.id === member.id ? { ...m, pw: hashedPw } : m) };
+    const newCfg = { ...cfg, companies: { ...cfg.companies, [compId]: { ...comp, teams: { ...comp.teams, [teamId]: newTeam } } } };
+    await saveCfg(newCfg);
+    navigator.clipboard?.writeText(`Checkin Login\nEmail: ${member.email}\nPassword: ${newPw}\n\nSign in and submit your daily updates.`);
     setCopiedCreds(member.id);
     setTimeout(() => setCopiedCreds(null), 2000);
+  };
+
+  const saveKpis = async (teamId, memberId) => {
+    const kpis = editKpiLines.map(s => s.trim()).filter(Boolean);
+    const team = comp.teams[teamId];
+    const newTeam = { ...team, members: team.members.map(m => m.id === memberId ? { ...m, kpis } : m) };
+    const newCfg = { ...cfg, companies: { ...cfg.companies, [compId]: { ...comp, teams: { ...comp.teams, [teamId]: newTeam } } } };
+    await saveCfg(newCfg);
+    setEditingKpis(null);
   };
 
   const addCompany = async () => {
@@ -1191,22 +1281,51 @@ function AdminPanel({ cfg, saveCfg, compId, comp, onClose }) {
                 </div>
 
                 {team.members.map(m => (
-                  <div key={m.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", borderBottom: "1px solid #f9fafb" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <Av i={m.av} s={28} />
-                      <div>
-                        <div style={{ fontSize: 13, fontWeight: 600 }}>{m.name}</div>
-                        <div style={{ fontSize: 11, color: "#9ca3af" }}>{m.email} · {m.role}</div>
-                        {m.kpis?.length > 0 && <div style={{ fontSize: 10, color: "#6b7280", marginTop: 2 }}>KPIs: {m.kpis.join(", ")}</div>}
+                  <React.Fragment key={m.id}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", borderBottom: "1px solid #f9fafb" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <Av i={m.av} s={28} />
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 600 }}>{m.name}</div>
+                          <div style={{ fontSize: 11, color: "#9ca3af" }}>{m.email} · {m.role}</div>
+                          {m.kpis?.length > 0 && <div style={{ fontSize: 10, color: "#6b7280", marginTop: 2 }}>KPIs: {m.kpis.join(", ")}</div>}
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button onClick={() => { setEditingKpis(editingKpis === m.id ? null : m.id); setEditKpiLines(m.kpis?.length > 0 ? [...m.kpis] : [""]); }} style={{ fontSize: 11, fontWeight: 500, padding: "4px 10px", borderRadius: 6, border: "1px solid #e5e7eb", background: editingKpis === m.id ? "#eef2ff" : "#fff", color: editingKpis === m.id ? "#6366f1" : "#6b7280", cursor: "pointer", fontFamily: "inherit" }}>
+                          Edit KPIs
+                        </button>
+                        <button onClick={() => resetPassword(tid, m)} style={{ fontSize: 11, fontWeight: 500, padding: "4px 10px", borderRadius: 6, border: "1px solid #e5e7eb", background: copiedCreds === m.id ? "#10b981" : "#fff", color: copiedCreds === m.id ? "#fff" : "#6b7280", cursor: "pointer", fontFamily: "inherit" }}>
+                          {copiedCreds === m.id ? "\u2713 Copied" : "Reset pw"}
+                        </button>
+                        <button onClick={() => removeMember(tid, m.id)} style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, border: "1px solid #fecaca", background: "#fff", color: "#ef4444", cursor: "pointer", fontFamily: "inherit" }}>{"\u2717"}</button>
                       </div>
                     </div>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <button onClick={() => copyCredentials(m)} style={{ fontSize: 11, fontWeight: 500, padding: "4px 10px", borderRadius: 6, border: "1px solid #e5e7eb", background: copiedCreds === m.id ? "#10b981" : "#fff", color: copiedCreds === m.id ? "#fff" : "#6b7280", cursor: "pointer", fontFamily: "inherit" }}>
-                        {copiedCreds === m.id ? "\u2713 Copied" : "Copy creds"}
-                      </button>
-                      <button onClick={() => removeMember(tid, m.id)} style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, border: "1px solid #fecaca", background: "#fff", color: "#ef4444", cursor: "pointer", fontFamily: "inherit" }}>{"\u2717"}</button>
-                    </div>
-                  </div>
+                    {editingKpis === m.id && (
+                      <div style={{ padding: "12px 16px", background: "#f9fafb", borderBottom: "1px solid #e5e7eb" }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "#6b7280", marginBottom: 6 }}>Edit KPIs for {m.name}</div>
+                        {editKpiLines.map((line, ki) => (
+                          <div key={ki} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                            <span style={{ fontSize: 12, color: "#9ca3af", minWidth: 18, textAlign: "right" }}>{ki + 1}.</span>
+                            <input value={line} onChange={e => { const n = [...editKpiLines]; n[ki] = e.target.value; setEditKpiLines(n); }}
+                              onKeyDown={e => { if (e.key === "Enter" && line.trim()) { e.preventDefault(); setEditKpiLines([...editKpiLines, ""]); } }}
+                              placeholder="KPI description..."
+                              style={{ flex: 1, padding: "9px 12px", borderRadius: 8, border: "1.5px solid #e5e7eb", fontSize: 13, fontFamily: "inherit", outline: "none" }} />
+                            {editKpiLines.length > 1 && (
+                              <button onClick={() => setEditKpiLines(editKpiLines.filter((_, i) => i !== ki))}
+                                style={{ width: 28, height: 28, borderRadius: 6, border: "1px solid #e5e7eb", background: "#fff", color: "#9ca3af", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0, lineHeight: 1 }}>{"\u00d7"}</button>
+                            )}
+                          </div>
+                        ))}
+                        <button onClick={() => setEditKpiLines([...editKpiLines, ""])}
+                          style={{ fontSize: 12, color: "#6b7280", background: "none", border: "none", cursor: "pointer", padding: "4px 0", fontFamily: "inherit" }}>+ Add another KPI</button>
+                        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                          <button onClick={() => setEditingKpis(null)} style={{ flex: 1, padding: "9px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", color: "#6b7280", fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
+                          <button onClick={() => saveKpis(tid, m.id)} style={{ flex: 2, padding: "9px", borderRadius: 8, border: "none", background: "#111", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Save KPIs</button>
+                        </div>
+                      </div>
+                    )}
+                  </React.Fragment>
                 ))}
 
                 {team.members.length === 0 && <div style={{ padding: "16px", textAlign: "center", fontSize: 12, color: "#9ca3af" }}>No members yet</div>}
@@ -1318,7 +1437,7 @@ function CeoPasswordChange({ cfg, saveCfg }) {
   const [saved, setSaved] = useState(false);
   const change = async () => {
     if (!pw.trim()) return;
-    await saveCfg({ ...cfg, ceoPw: pw.trim() });
+    await saveCfg({ ...cfg, ceoPw: await hashPw(pw.trim()) });
     setPw(""); setSaved(true); setTimeout(() => { setSaved(false); setOpen(false); }, 1500);
   };
   if (!open) return <button onClick={() => setOpen(true)} style={{ fontSize: 12, fontWeight: 500, padding: "5px 14px", borderRadius: 6, border: "1px solid #e5e7eb", background: "#fff", color: "#6b7280", cursor: "pointer", fontFamily: "inherit" }}>Change password</button>;
