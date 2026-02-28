@@ -158,8 +158,24 @@ async function checkPw(input, stored) {
 }
 
 // ─── Streak / Status helpers ──────────────────────────────
-function getWkStreak(uid, wci) { const cw = getCW(); let s = 0; for (let i = cw; i >= 0; i--) { const r = resolveWeek(uid, i, wci); if (r === "green") s++; else break; } return s; }
-function resolveWeek(uid, wi, wci) {
+function getMemberStartWeek(member) {
+  if (!member?.addedAt) return 0;
+  const added = new Date(member.addedAt);
+  for (let i = WEEKS.length - 1; i >= 0; i--) { if (added >= WEEKS[i].mon) return i; }
+  return 0;
+}
+function getWkStreak(uid, wci, member) {
+  const cw = getCW(); const sw = getMemberStartWeek(member); let s = 0;
+  for (let i = cw; i >= 0; i--) {
+    if (i < sw) break; // don't count pre-enrollment weeks
+    const r = resolveWeek(uid, i, wci, member);
+    if (r === "green") s++;
+    else if (r === "red" || (r === "auto-red" && i >= sw)) break;
+    else break;
+  }
+  return s;
+}
+function resolveWeek(uid, wi, wci, member) {
   const c = wci[`${uid}:${WEEKS[wi]?.id}`];
   if (c?.kpis) {
     const scored = c.kpis.filter(k => k.status);
@@ -167,7 +183,12 @@ function resolveWeek(uid, wi, wci) {
     return scored.every(k => k.status === "green") ? "green" : "red";
   }
   if (c?.status) return c.status;
-  if (isLocked(wi)) return "auto-red"; return null;
+  if (isLocked(wi)) {
+    const sw = getMemberStartWeek(member);
+    if (wi < sw) return "pre-enrollment";
+    return "auto-red";
+  }
+  return null;
 }
 function weekDailySummary(uid, wi, dci, pto) {
   pto = pto || {};
@@ -937,14 +958,20 @@ function WeeklyMember({ uid, m, wci, dci, cmt, kpiP, pto, save, tz }) {
   const [saved, setSaved] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [contextExpanded, setContextExpanded] = useState(false);
+  const [showAllWeeks, setShowAllWeeks] = useState(false);
 
   const wk = WEEKS[wIdx], key = `${uid}:${wk?.id}`, existing = wci[key];
   const locked = isLocked(wIdx), overdue = isOverdue(wIdx) && !existing, dl = timeLeft(wIdx);
-  const streak = getWkStreak(uid, wci), ceoComment = cmt[key];
+  const streak = getWkStreak(uid, wci, m), ceoComment = cmt[key];
   const allKpiSet = kpiStates.every(k => k.status);
-  const hist = useMemo(() => WEEKS.slice(0, CW + 1).map((_, i) => resolveWeek(uid, i, wci)), [uid, wci]);
-  const totalGreen = hist.filter(h => h === "green").length, totalScored = hist.filter(h => h).length;
-  const hitRate = totalScored > 0 ? Math.round((totalGreen / totalScored) * 100) : 0;
+  const startWeek = getMemberStartWeek(m);
+  const hist = useMemo(() => WEEKS.slice(0, CW + 1).map((_, i) => resolveWeek(uid, i, wci, m)), [uid, wci, m]);
+  const enrolledHist = hist.filter((h, i) => i >= startWeek && h !== "pre-enrollment");
+  const totalGreen = enrolledHist.filter(h => h === "green").length;
+  const totalActualRed = enrolledHist.filter(h => h === "red").length;
+  const totalAutoRed = enrolledHist.filter(h => h === "auto-red").length;
+  const totalScored = enrolledHist.filter(h => h).length;
+  const hitRate = totalScored > 0 ? Math.round((totalGreen / totalScored) * 100) : null;
   const dailySumm = weekDailySummary(uid, wIdx, dci, pto);
 
   const dailyContext = useMemo(() => {
@@ -974,7 +1001,10 @@ function WeeklyMember({ uid, m, wci, dci, cmt, kpiP, pto, save, tz }) {
     return () => window.removeEventListener('keydown', handler);
   });
 
-  const vs = Math.max(0, CW - 11), vw = WEEKS.slice(vs, CW + 1);
+  const allWeekCount = CW + 1;
+  const vs = showAllWeeks ? Math.max(0, startWeek) : Math.max(0, CW - 11);
+  const vw = WEEKS.slice(vs, CW + 1);
+  const hasMoreWeeks = allWeekCount > 12 && !showAllWeeks;
 
   return (
     <>
@@ -986,17 +1016,52 @@ function WeeklyMember({ uid, m, wci, dci, cmt, kpiP, pto, save, tz }) {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
           <div style={{ display: "flex", gap: 16 }}>
             <div><div style={{ fontSize: 26, fontWeight: 800, letterSpacing: -1, color: "#10b981" }}>{totalGreen}</div><div style={{ fontSize: 11, color: "#6b7280" }}>green</div></div>
-            <div><div style={{ fontSize: 26, fontWeight: 800, letterSpacing: -1, color: totalScored - totalGreen > 0 ? "#ef4444" : "#d1d5db" }}>{totalScored - totalGreen}</div><div style={{ fontSize: 11, color: "#6b7280" }}>red</div></div>
-            <div title={`${hitRate}% hit rate\n\nGreen: 70%+\nAmber: 50–69%\nRed: below 50%`}><div style={{ fontSize: 26, fontWeight: 800, letterSpacing: -1, color: hitRate >= 70 ? "#10b981" : hitRate >= 50 ? "#f59e0b" : "#ef4444", cursor: "help" }}>{hitRate}%</div><div style={{ fontSize: 11, color: S.textMuted }}>hit rate</div></div>
+            <div title={totalAutoRed > 0 ? `${totalActualRed} missed + ${totalAutoRed} not submitted` : undefined}><div style={{ fontSize: 26, fontWeight: 800, letterSpacing: -1, color: totalActualRed + totalAutoRed > 0 ? "#ef4444" : "#d1d5db" }}>{totalActualRed}{totalAutoRed > 0 && <span style={{ fontSize: 16, color: S.textFaint, fontWeight: 600 }}>+{totalAutoRed}</span>}</div><div style={{ fontSize: 11, color: "#6b7280" }}>{totalAutoRed > 0 ? "red + auto" : "red"}</div></div>
+            <div title={`${hitRate != null ? hitRate + "%" : "N/A"} hit rate\n\nGreen: 70%+\nAmber: 50–69%\nRed: below 50%\n\nOnly counts weeks since you were added.`}><div style={{ fontSize: 26, fontWeight: 800, letterSpacing: -1, color: hitRate == null ? "#d1d5db" : hitRate >= 70 ? "#10b981" : hitRate >= 50 ? "#f59e0b" : "#ef4444", cursor: "help" }}>{hitRate != null ? hitRate + "%" : "N/A"}</div><div style={{ fontSize: 11, color: S.textMuted }}>hit rate</div></div>
           </div>
           {streak > 0 && <div style={{ background: streak >= 6 ? "#ecfdf5" : "#f3f4f6", padding: "6px 14px", borderRadius: 20, fontSize: 13, fontWeight: 700, color: streak >= 6 ? "#065f46" : "#6b7280" }}>{streak >= 6 ? "\ud83d\udd25 " : ""}{streak}w</div>}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: `repeat(${vw.length},1fr)`, gap: 4 }}>
-          {vw.map((w, vi) => { const ri = vs + vi, s = hist[ri], cur = ri === CW, isFutureWk = ri > CW, isPast = ri < CW && !s; return <div key={w.id} onClick={() => !isLocked(ri) && setWIdx(ri)} title={`${w.range}${s ? ` — ${s === "green" ? "Hit" : "Missed"}` : isFutureWk ? " — Upcoming" : cur ? " — Current" : " — Not submitted"}`} style={{ aspectRatio: "1", borderRadius: 8, cursor: isLocked(ri) ? "default" : "pointer", background: s === "green" ? "#10b981" : s === "red" ? "#ef4444" : s === "auto-red" ? "#fca5a5" : cur ? "#f3f4f6" : isFutureWk ? "#fafafa" : "#f9fafb", border: ri === wIdx ? "2.5px solid #111" : isPast ? "1.5px dashed #d1d5db" : "1.5px solid transparent", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", opacity: s === "auto-red" ? 0.5 : isFutureWk ? 0.4 : 1 }}>{s === "green" && <span style={{ color: "#fff", fontSize: 14, fontWeight: 800 }}>{"\u2713"}</span>}{(s === "red" || s === "auto-red") && <span style={{ color: "#fff", fontSize: 14, fontWeight: 800 }}>{"\u2717"}</span>}{!s && cur && <span style={{ fontSize: 9, color: "#9ca3af", fontWeight: 600 }}>NOW</span>}{!s && isPast && <span style={{ fontSize: 10, color: "#d1d5db" }}>{"\u2014"}</span>}</div>; })}
+          {vw.map((w, vi) => {
+            const ri = vs + vi, s = hist[ri], cur = ri === CW, isFutureWk = ri > CW, isPast = ri < CW && !s;
+            const isPreEnroll = s === "pre-enrollment";
+            const isAutoRed = s === "auto-red";
+            const isLockedWk = isLocked(ri);
+            const dleft = cur ? timeLeft(ri) : null;
+            const lockReason = isLockedWk && w ? `Locked — grace period ended ${w.gr.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}` : "";
+            const tooltip = isPreEnroll ? `${w.range} — Not enrolled yet`
+              : s === "green" ? `${w.range} — Hit`
+              : isAutoRed ? `${w.range} — No submission (auto-red)\n${lockReason}`
+              : s === "red" ? `${w.range} — Missed`
+              : isFutureWk ? `${w.range} — Upcoming`
+              : cur ? `${w.range} — Current${dleft ? ` (${dleft} left)` : ""}`
+              : `${w.range} — Not submitted`;
+            const bg = s === "green" ? "#10b981" : s === "red" ? "#ef4444" : isAutoRed ? S.borderLight : isPreEnroll ? S.bg : cur ? S.borderLight : isFutureWk ? S.bg : "#f9fafb";
+            const bd = ri === wIdx ? "2.5px solid #111" : isAutoRed ? "1.5px dashed #f87171" : isPast && !isPreEnroll ? "1.5px dashed #d1d5db" : "1.5px solid transparent";
+            return <div key={w.id}
+              onClick={() => { if (isLockedWk && !isPreEnroll) alert(lockReason || "This week is locked."); else if (!isLockedWk) setWIdx(ri); }}
+              title={tooltip}
+              style={{ aspectRatio: "1", maxWidth: 56, borderRadius: 8, cursor: isPreEnroll || isFutureWk ? "default" : "pointer", background: bg, border: bd, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", transition: "all 0.15s", opacity: isPreEnroll ? 0.3 : isFutureWk ? 0.4 : 1 }}>
+              {s === "green" && <span style={{ color: "#fff", fontSize: 14, fontWeight: 800 }}>{"\u2713"}</span>}
+              {s === "red" && <span style={{ color: "#fff", fontSize: 14, fontWeight: 800 }}>{"\u2717"}</span>}
+              {isAutoRed && <span style={{ color: "#f87171", fontSize: 12, fontWeight: 700 }}>{"\u2014"}</span>}
+              {isPreEnroll && <span style={{ fontSize: 10, color: "#d1d5db" }}>{"\u2014"}</span>}
+              {!s && cur && <>
+                <span style={{ fontSize: 8, color: "#6366f1", fontWeight: 700 }}>NOW</span>
+                {dleft && <span style={{ fontSize: 7, color: S.textFaint, fontWeight: 500, marginTop: 1 }}>{dleft}</span>}
+              </>}
+              {!s && isPast && !isPreEnroll && <span style={{ fontSize: 10, color: "#d1d5db" }}>{"\u2014"}</span>}
+            </div>;
+          })}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: `repeat(${vw.length},1fr)`, gap: 4, marginTop: 3 }}>
-          {vw.map((w, vi) => <div key={w.id} title={w.range} style={{ textAlign: "center", fontSize: 9, color: vs + vi === wIdx ? "#111" : "#9ca3af", fontWeight: vs + vi === wIdx ? 700 : 400, cursor: "default" }}>{w.short}</div>)}
+          {vw.map((w, vi) => <div key={w.id} title={w.range} style={{ textAlign: "center", fontSize: 9, color: vs + vi === wIdx ? "#111" : "#9ca3af", fontWeight: vs + vi === wIdx ? 700 : 400, cursor: "default" }}>{w.label}</div>)}
         </div>
+        {(hasMoreWeeks || showAllWeeks) && (
+          <button onClick={() => setShowAllWeeks(!showAllWeeks)} style={{ background: "none", border: "none", fontSize: 10, color: "#6366f1", cursor: "pointer", fontFamily: "inherit", fontWeight: 500, marginTop: 6, padding: 0, display: "block", width: "100%", textAlign: "center" }}>
+            {showAllWeeks ? "Show recent 12 weeks" : `Show all ${allWeekCount} weeks`}
+          </button>
+        )}
       </div>
 
       <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "12px 16px", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -1072,7 +1137,8 @@ function WeeklyMember({ uid, m, wci, dci, cmt, kpiP, pto, save, tz }) {
             {pastWeeks.map(({ wi: pwi, entry: pe }) => {
               const pwk = WEEKS[pwi];
               const pCmt = cmt[`${uid}:${pwk.id}`];
-              const pStatus = resolveWeek(uid, pwi, wci);
+              const pStatus = resolveWeek(uid, pwi, wci, m);
+              if (pStatus === "pre-enrollment") return null;
               return (
                 <div key={pwk.id} style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "14px 16px", marginBottom: 8 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
@@ -1127,7 +1193,7 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
 
   const filteredMembers = useMemo(() => filter ? (TEAMS[filter]?.members || []) : allMembers, [filter, allMembers, TEAMS]);
 
-  const rs = useCallback((uid, wi) => resolveWeek(uid, wi, wci), [wci]);
+  const rs = useCallback((uid, wi, member) => resolveWeek(uid, wi, wci, member), [wci]);
 
   const [feedDate, setFeedDate] = useState(lastCompletedWeekday());
   const browDays = useMemo(() => ceoBrowsableDays(), []);
@@ -1137,7 +1203,7 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
   // Weekly table data
   const weeklyTableData = useMemo(() => {
     return filteredMembers.map(m => {
-      const hist = WEEKS.slice(0, CW + 1).map((_, i) => rs(m.id, i));
+      const hist = WEEKS.slice(0, CW + 1).map((_, i) => rs(m.id, i, m));
       const dSumm = weekDailySummary(m.id, wIdx, dci, pto);
       return { ...m, hist, dSumm, weekEntry: wci[`${m.id}:${wk?.id}`] };
     });
@@ -1191,7 +1257,7 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
     const days = weekdaysInWeek(drillWeekIdx);
     const dailies = days.map(d => ({ date: d, entry: dci[`${m.id}:${d}`] || null, cmt: cmt[`d:${m.id}:${d}`] || null }));
     const weeklyEntry = wci[`${m.id}:${drillWk?.id}`];
-    return { m, dailies, weeklyEntry, weekStatus: rs(m.id, drillWeekIdx) };
+    return { m, dailies, weeklyEntry, weekStatus: rs(m.id, drillWeekIdx, m) };
   }, [drillPerson, drillWeekIdx, dci, cmt, wci, allMembers]);
 
   const vs = Math.max(0, CW - 11), vw = WEEKS.slice(vs, CW + 1);
@@ -1360,7 +1426,7 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
                       <div key={pwi} style={{ background: "#f9fafb", borderRadius: 10, border: "1px solid #e5e7eb", padding: "10px 14px", marginBottom: 6 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: pe?.kpis ? 6 : 0 }}>
                           <span style={{ fontSize: 12, fontWeight: 600 }}>{WEEKS[pwi].range}</span>
-                          <span style={{ fontSize: 11, color: resolveWeek(drillData.m.id, pwi, wci) === "green" ? "#10b981" : "#ef4444", fontWeight: 600 }}>{resolveWeek(drillData.m.id, pwi, wci) === "green" ? "\u2713 Green" : "\u2717 Red"}</span>
+                          <span style={{ fontSize: 11, color: resolveWeek(drillData.m.id, pwi, wci, drillData.m) === "green" ? "#10b981" : "#ef4444", fontWeight: 600 }}>{resolveWeek(drillData.m.id, pwi, wci, drillData.m) === "green" ? "\u2713 Green" : "\u2717 Red"}</span>
                         </div>
                         {pe?.kpis && drillData.m.kpis.map((kpi, ki) => { const k = pe.kpis[ki]; return k ? <div key={ki} style={{ fontSize: 11, color: "#6b7280", display: "flex", justifyContent: "space-between", padding: "2px 0" }}><span>{kpi}</span>{k.actual && <span>{k.actual}</span>}</div> : null; })}
                         {pc && <div style={{ fontSize: 11, color: "#6366f1", marginTop: 4 }}>{"\ud83d\udcac"} {pc.text}</div>}
@@ -1463,7 +1529,7 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
                       {filteredMembers.map(m => (
                         <React.Fragment key={m.id}>
                           <div style={{ fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }} onClick={() => setDrillPerson(m.id)}><Av i={m.av} s={20} />{m.name.split(" ")[0]}</div>
-                          {vw.map((w, vi) => { const s = rs(m.id, vs + vi); return <div key={w.id} title={`${w.range} — ${s === "green" ? "Hit" : s ? "Missed" : "Pending"}`} style={{ height: 28, borderRadius: s === "green" ? 14 : 4, display: "flex", alignItems: "center", justifyContent: "center", background: s === "green" ? "#d1fae5" : s === "red" || s === "auto-red" ? "#fee2e2" : "#f3f4f6", border: vs + vi === wIdx ? "2px solid #111" : s === "green" ? "1.5px solid #10b981" : s ? "1.5px solid #ef4444" : "1px solid transparent" }}>{s === "green" ? <span style={{ fontSize: 12, color: "#065f46", fontWeight: 800 }}>{"\u2713"}</span> : s ? <span style={{ fontSize: 12, color: "#991b1b", fontWeight: 800 }}>{"\u2717"}</span> : <span style={{ fontSize: 11, color: "#d1d5db" }}>{"\u00b7"}</span>}</div>; })}
+                          {vw.map((w, vi) => { const s = rs(m.id, vs + vi, m); return <div key={w.id} title={`${w.range} — ${s === "green" ? "Hit" : s === "pre-enrollment" ? "Not enrolled" : s ? "Missed" : "Pending"}`} style={{ height: 28, borderRadius: s === "green" ? 14 : 4, display: "flex", alignItems: "center", justifyContent: "center", background: s === "green" ? "#d1fae5" : s === "pre-enrollment" ? "#f9fafb" : s === "red" || s === "auto-red" ? "#fee2e2" : "#f3f4f6", border: vs + vi === wIdx ? "2px solid #111" : s === "green" ? "1.5px solid #10b981" : s === "pre-enrollment" ? "1px solid transparent" : s ? "1.5px solid #ef4444" : "1px solid transparent" }}>{s === "green" ? <span style={{ fontSize: 12, color: "#065f46", fontWeight: 800 }}>{"\u2713"}</span> : s === "pre-enrollment" ? <span style={{ fontSize: 11, color: "#d1d5db" }}>{"\u2014"}</span> : s ? <span style={{ fontSize: 12, color: "#991b1b", fontWeight: 800 }}>{"\u2717"}</span> : <span style={{ fontSize: 11, color: "#d1d5db" }}>{"\u00b7"}</span>}</div>; })}
                           <div style={{ fontSize: 9, color: "#9ca3af", textAlign: "right" }}>daily</div>
                           {vw.map((w, vi) => { const days = weekdaysInWeek(vs + vi); const ptoCt = days.filter(d => pto[`${m.id}:${d}`]).length; const ct = days.filter(d => dci[`${m.id}:${d}`]).length; const tot = days.length - ptoCt; const pct = tot ? ct / tot : 0; return <div key={w.id + "d"} style={{ height: 16, borderRadius: 3, display: "flex", alignItems: "center", justifyContent: "center", background: pct >= 0.8 ? "#dbeafe" : pct >= 0.4 ? "#fef3c7" : "#f3f4f6" }}><span style={{ fontSize: 9, color: pct >= 0.8 ? "#1e40af" : pct >= 0.4 ? "#92400e" : "#d1d5db", fontWeight: 500 }}>{ct}/{tot}</span></div>; })}
                         </React.Fragment>
@@ -1524,7 +1590,7 @@ function AdminPanel({ cfg, saveCfg, compId, comp, onClose }) {
     const kpis = kpiLines.map(s => s.trim()).filter(Boolean);
     const av = newMember.name.trim().split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
     const rawPw = newMember.pw || "change-me";
-    const member = { id: mid, name: newMember.name.trim(), email, pw: await hashPw(rawPw), role: newMember.role.trim() || "Team member", av, kpis };
+    const member = { id: mid, name: newMember.name.trim(), email, pw: await hashPw(rawPw), role: newMember.role.trim() || "Team member", av, kpis, addedAt: new Date().toISOString() };
     const team = comp.teams[teamId];
     const newTeam = { ...team, members: [...team.members, member] };
     const newCfg = {
