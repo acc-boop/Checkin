@@ -1,5 +1,62 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 
+// ─── Google Fonts (single injection) ────────────────────────
+const FONT_URL = "https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&display=swap";
+let fontInjected = false;
+function ensureFont() {
+  if (fontInjected) return;
+  fontInjected = true;
+  const link = document.createElement("link");
+  link.rel = "stylesheet";
+  link.href = FONT_URL;
+  document.head.appendChild(link);
+}
+
+// ─── Hash Routing ──────────────────────────────────────────
+function useHashRoute() {
+  const [hash, setHash] = useState(() => window.location.hash.slice(1) || "");
+  useEffect(() => {
+    const handler = () => setHash(window.location.hash.slice(1) || "");
+    window.addEventListener("hashchange", handler);
+    return () => window.removeEventListener("hashchange", handler);
+  }, []);
+  const navigate = useCallback((path, replace = false) => {
+    if (replace) window.history.replaceState(null, "", "#" + path);
+    else window.history.pushState(null, "", "#" + path);
+    setHash(path);
+  }, []);
+  return { hash, navigate };
+}
+function parseRoute(hash) {
+  const parts = hash.split("/").filter(Boolean);
+  return { view: parts[0] || "", sub: parts[1] || "", param: parts[2] || "" };
+}
+
+// ─── Shared Style Constants ─────────────────────────────────
+const S = {
+  font: "'DM Sans',-apple-system,sans-serif",
+  radius: { sm: 6, md: 10, lg: 12, xl: 16 },
+  border: "#e5e7eb",
+  borderLight: "#f3f4f6",
+  textPrimary: "#111",
+  textSecondary: "#374151",
+  textMuted: "#6b7280",
+  textFaint: "#9ca3af",
+  bg: "#fafafa",
+  bgWhite: "#fff",
+  inputStyle: { width: "100%", padding: "11px 14px", borderRadius: 10, border: "1.5px solid #e5e7eb", fontSize: 14, fontFamily: "'DM Sans',sans-serif", outline: "none", boxSizing: "border-box" },
+  btnPrimary: { borderRadius: 12, border: "none", background: "#111", color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" },
+  textBlock: { whiteSpace: "pre-line", overflowWrap: "break-word", wordBreak: "break-word" },
+};
+
+// ─── Input Limits ──────────────────────────────────────────
+const LIMITS = { daily: 2000, challenge: 1000, kpiActual: 200, feedback: 500, stuckReply: 500 };
+function CharCount({ value, max }) {
+  const len = value?.length || 0;
+  if (len < max * 0.8) return null;
+  return <div style={{ fontSize: 10, color: len >= max ? "#ef4444" : "#f59e0b", textAlign: "right", marginTop: 2 }}>{len}/{max}</div>;
+}
+
 // ─── Dates & Weeks ─────────────────────────────────────────
 const GRACE_H = 48;
 
@@ -101,8 +158,24 @@ async function checkPw(input, stored) {
 }
 
 // ─── Streak / Status helpers ──────────────────────────────
-function getWkStreak(uid, wci) { const cw = getCW(); let s = 0; for (let i = cw; i >= 0; i--) { const r = resolveWeek(uid, i, wci); if (r === "green") s++; else break; } return s; }
-function resolveWeek(uid, wi, wci) {
+function getMemberStartWeek(member) {
+  if (!member?.addedAt) return 0;
+  const added = new Date(member.addedAt);
+  for (let i = WEEKS.length - 1; i >= 0; i--) { if (added >= WEEKS[i].mon) return i; }
+  return 0;
+}
+function getWkStreak(uid, wci, member) {
+  const cw = getCW(); const sw = getMemberStartWeek(member); let s = 0;
+  for (let i = cw; i >= 0; i--) {
+    if (i < sw) break; // don't count pre-enrollment weeks
+    const r = resolveWeek(uid, i, wci, member);
+    if (r === "green") s++;
+    else if (r === "red" || (r === "auto-red" && i >= sw)) break;
+    else break;
+  }
+  return s;
+}
+function resolveWeek(uid, wi, wci, member) {
   const c = wci[`${uid}:${WEEKS[wi]?.id}`];
   if (c?.kpis) {
     const scored = c.kpis.filter(k => k.status);
@@ -110,7 +183,12 @@ function resolveWeek(uid, wi, wci) {
     return scored.every(k => k.status === "green") ? "green" : "red";
   }
   if (c?.status) return c.status;
-  if (isLocked(wi)) return "auto-red"; return null;
+  if (isLocked(wi)) {
+    const sw = getMemberStartWeek(member);
+    if (wi < sw) return "pre-enrollment";
+    return "auto-red";
+  }
+  return null;
 }
 function weekDailySummary(uid, wi, dci, pto) {
   pto = pto || {};
@@ -122,9 +200,26 @@ function weekDailySummary(uid, wi, dci, pto) {
   return { count, stuck, days, ptoCount, expected };
 }
 
+// ─── Semantic Colors ─────────────────────────────────────
+const C = {
+  success: "#10b981", successBg: "#d1fae5", successText: "#065f46",
+  danger: "#ef4444", dangerBg: "#fee2e2", dangerText: "#991b1b",
+  warning: "#f59e0b", warningBg: "#fffbeb", warningText: "#92400e",
+  info: "#6366f1", infoBg: "#eef2ff", infoText: "#4338ca",
+  neutral: "#6b7280", neutralBg: "#f3f4f6", neutralBorder: "#e5e7eb",
+  confirm: "#10b981", confirmBg: "#ecfdf5",
+  action: "#111",
+};
+
 // ─── Shared UI ────────────────────────────────────────────
-const AC = { S: "#6366f1", M: "#10b981", P: "#f59e0b", J: "#ec4899", A: "#8b5cf6", E: "#06b6d4", T: "#f43f5e", D: "#14b8a6", R: "#f97316", L: "#84cc16", K: "#a855f7", B: "#3b82f6", C: "#ec4899", N: "#6366f1", O: "#10b981", G: "#ef4444" };
-const Av = ({ i, s = 30 }) => <div style={{ width: s, height: s, borderRadius: "50%", background: AC[i?.[0]?.toUpperCase()] || "#6366f1", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: s * 0.37, fontWeight: 600, flexShrink: 0 }}>{i}</div>;
+const AV_COLORS = ["#6366f1", "#10b981", "#f59e0b", "#ec4899", "#8b5cf6", "#06b6d4", "#f43f5e", "#14b8a6", "#f97316", "#84cc16", "#a855f7", "#3b82f6", "#0891b2", "#e11d48", "#7c3aed", "#059669"];
+function avColor(initials) {
+  if (!initials) return AV_COLORS[0];
+  let hash = 0;
+  for (let i = 0; i < initials.length; i++) hash = (hash * 31 + initials.charCodeAt(i)) | 0;
+  return AV_COLORS[Math.abs(hash) % AV_COLORS.length];
+}
+const Av = ({ i, s = 30 }) => <div style={{ width: s, height: s, borderRadius: "50%", background: avColor(i), color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: s * 0.37, fontWeight: 600, flexShrink: 0 }}>{i}</div>;
 const Spark = ({ data, w = 60, h = 20 }) => {
   const v = data.map(d => d === "green" ? 1 : d === "red" || d === "auto-red" ? 0 : 0.5);
   if (v.length < 2) return null; const step = w / (v.length - 1);
@@ -153,8 +248,11 @@ export default function App() {
   useEffect(() => { compDataRef.current = compData; }, [compData]);
   const [loaded, setLoaded] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
+  const [dataLoadErr, setDataLoadErr] = useState(null);
   const [saveErr, setSaveErr] = useState(null);
+  const { hash, navigate } = useHashRoute();
 
+  useEffect(ensureFont, []);
   useNow(60000);
 
   // ─── Load config & session ───
@@ -168,10 +266,16 @@ export default function App() {
 
   // ─── Load company data when session changes ───
   useEffect(() => {
-    if (!session?.compId) { setCompData({}); setDataLoaded(false); return; }
-    setDataLoaded(false);
+    if (!session?.compId) { setCompData({}); setDataLoaded(false); setDataLoadErr(null); return; }
+    setDataLoaded(false); setDataLoadErr(null);
     (async () => {
-      try { const r = await window.storage.get(dataKey(session.compId)); if (r?.value) setCompData(JSON.parse(r.value)); else setCompData({}); } catch { setCompData({}); }
+      try {
+        const r = await window.storage.get(dataKey(session.compId));
+        if (r?.value) setCompData(JSON.parse(r.value)); else setCompData({});
+      } catch (err) {
+        setCompData({});
+        setDataLoadErr("Could not load your data. Check your connection and try again.");
+      }
       setDataLoaded(true);
     })();
   }, [session?.compId]);
@@ -216,7 +320,10 @@ export default function App() {
   const login = useCallback(async (sess) => {
     setSession(sess);
     try { if (sess) localStorage.setItem(SESSION_KEY, JSON.stringify(sess)); else localStorage.removeItem(SESSION_KEY); } catch {}
-  }, []);
+    if (!sess) navigate("", true);
+    else if (sess.type === "ceo") navigate("daily", true);
+    else navigate("daily", true);
+  }, [navigate]);
 
   const logout = useCallback(() => login(null), [login]);
 
@@ -230,7 +337,7 @@ export default function App() {
 
   // Resolve current company
   const comp = cfg.companies[session.compId];
-  if (!comp) { logout(); return null; }
+  if (!comp) return <SessionErrorScreen message="Your company could not be found. This may happen if the company was removed." onLogout={logout} />;
 
   const allMembers = Object.values(comp.teams).flatMap(t => t.members);
   const wci = compData.wci || {};
@@ -245,6 +352,22 @@ export default function App() {
 
   if (!dataLoaded) return <DataLoadingScreen />;
 
+  if (dataLoadErr) return (
+    <div style={{ minHeight: "100vh", fontFamily: S.font, background: S.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <style>{GLOBAL_STYLES}</style>
+      <div style={{ textAlign: "center", maxWidth: 400, padding: 20 }}>
+        <div style={{ fontSize: 28, marginBottom: 12, opacity: 0.4 }}>{"\u26a0"}</div>
+        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Connection issue</div>
+        <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 20 }}>{dataLoadErr}</div>
+        <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+          <button onClick={() => { setDataLoaded(false); setDataLoadErr(null); const cid = session.compId; setSession(null); setTimeout(() => setSession({ ...session, compId: cid }), 50); }} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: "#111", color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Retry</button>
+          <button onClick={logout} style={{ padding: "10px 20px", borderRadius: 10, border: "1px solid #e5e7eb", background: "#fff", color: "#6b7280", fontSize: 14, fontWeight: 500, cursor: "pointer", fontFamily: "inherit" }}>Sign out</button>
+        </div>
+        <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 16 }}>Your data is safe — this is just a connection issue.</div>
+      </div>
+    </div>
+  );
+
   if (session.type === "ceo") {
     return <>
       <CeoDash
@@ -253,36 +376,46 @@ export default function App() {
         wci={wci} dci={dci} cmt={cmt} kpiP={kpiP} stuckRes={stuckRes} seen={seen} pto={pto}
         save={saveData} cfg={cfg} saveCfg={saveCfg}
         switchCompany={(cid) => login({ type: "ceo", compId: cid })}
-        logout={logout}
+        logout={logout} hash={hash} navigate={navigate}
       />
       {saveErr && <ErrorToast msg={saveErr} onClose={() => setSaveErr(null)} />}
     </>;
   }
 
   const member = allMembers.find(m => m.id === session.memberId);
-  if (!member) { logout(); return null; }
+  if (!member) return <SessionErrorScreen message="Your account could not be found. You may have been removed from your team. Please contact your manager." onLogout={logout} />;
 
   return <>
     <MemberDash
       uid={member.id} m={member} getTeam={getTeam}
       wci={wci} dci={dci} cmt={cmt} kpiP={kpiP} stuckRes={stuckRes} seen={seen} pto={pto}
       save={saveData} logout={logout} cfg={cfg} saveCfg={saveCfg} compId={session.compId}
+      hash={hash} navigate={navigate}
     />
     {saveErr && <ErrorToast msg={saveErr} onClose={() => setSaveErr(null)} />}
   </>;
 }
 
+const GLOBAL_STYLES = `
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+@keyframes toastIn { from { opacity: 0; transform: translateX(-50%) translateY(-12px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+input:focus, textarea:focus, select:focus { outline: none; box-shadow: 0 0 0 2px #6366f1 !important; border-color: #6366f1 !important; }
+button:focus-visible { outline: 2px solid #6366f1; outline-offset: 2px; }
+textarea { max-height: 400px; }
+`;
+
 function LoadingScreen() {
-  return <div style={{ display: "flex", height: "100vh", alignItems: "center", justifyContent: "center", fontFamily: "'DM Sans',sans-serif", color: "#9ca3af" }}>
-    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&display=swap" rel="stylesheet" />
+  useEffect(ensureFont, []);
+  return <div style={{ display: "flex", height: "100vh", alignItems: "center", justifyContent: "center", fontFamily: S.font, color: S.textFaint }}>
+    <style>{GLOBAL_STYLES}</style>
     Loading…
   </div>;
 }
 
 function DataLoadingScreen() {
   return (
-    <div style={{ minHeight: "100vh", fontFamily: "'DM Sans',-apple-system,sans-serif", background: "#fafafa" }}>
-      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&display=swap" rel="stylesheet" />
+    <div style={{ minHeight: "100vh", fontFamily: S.font, background: S.bg }}>
+
       <div style={{ background: "#fff", borderBottom: "1px solid #e5e7eb", padding: "10px 20px", display: "flex", alignItems: "center", gap: 8 }}>
         <span style={{ fontSize: 18 }}>{"\u25ce"}</span><span style={{ fontSize: 15, fontWeight: 700, letterSpacing: -0.3 }}>Checkin</span>
       </div>
@@ -297,7 +430,20 @@ function DataLoadingScreen() {
           <div style={{ width: "70%", height: 12, borderRadius: 4, background: "#f3f4f6" }} />
         </div>)}
         <div style={{ textAlign: "center", marginTop: 16, fontSize: 13, color: "#9ca3af" }}>Loading your data...</div>
-        <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }`}</style>
+      </div>
+    </div>
+  );
+}
+
+function SessionErrorScreen({ message, onLogout }) {
+  return (
+    <div style={{ minHeight: "100vh", fontFamily: S.font, background: S.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <style>{GLOBAL_STYLES}</style>
+      <div style={{ textAlign: "center", maxWidth: 400, padding: 20 }}>
+        <div style={{ fontSize: 28, marginBottom: 12 }}>{"\ud83d\udd12"}</div>
+        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Session expired</div>
+        <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 20, lineHeight: 1.5 }}>{message}</div>
+        <button onClick={onLogout} style={{ padding: "12px 24px", borderRadius: 10, border: "none", background: "#111", color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Sign in again</button>
       </div>
     </div>
   );
@@ -307,12 +453,15 @@ function SaveToast({ show }) {
   if (!show) return null;
   return <div style={{ position: "fixed", top: 20, left: "50%", transform: "translateX(-50%)", background: "#065f46", color: "#fff", padding: "12px 24px", borderRadius: 12, fontSize: 15, fontFamily: "'DM Sans',sans-serif", fontWeight: 700, zIndex: 9999, boxShadow: "0 8px 24px rgba(0,0,0,.2)", display: "flex", alignItems: "center", gap: 8, animation: "toastIn 0.3s ease-out" }}>
     <span style={{ fontSize: 20 }}>{"\u2713"}</span> Saved successfully
-    <style>{`@keyframes toastIn { from { opacity: 0; transform: translateX(-50%) translateY(-12px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }`}</style>
   </div>;
 }
 
 function ErrorToast({ msg, onClose }) {
-  return <div style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", background: "#991b1b", color: "#fff", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontFamily: "'DM Sans',sans-serif", fontWeight: 500, zIndex: 9999, boxShadow: "0 4px 16px rgba(0,0,0,.15)", display: "flex", gap: 12, alignItems: "center" }}>
+  useEffect(() => {
+    const timer = setTimeout(onClose, 8000);
+    return () => clearTimeout(timer);
+  }, [msg, onClose]);
+  return <div style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", background: "#991b1b", color: "#fff", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontFamily: "'DM Sans',sans-serif", fontWeight: 500, zIndex: 9999, boxShadow: "0 4px 16px rgba(0,0,0,.15)", display: "flex", gap: 12, alignItems: "center", maxWidth: "90vw", animation: "toastIn 0.3s ease-out" }}>
     {msg}<button onClick={onClose} style={{ background: "none", border: "none", color: "#fca5a5", cursor: "pointer", fontSize: 16, fontWeight: 700 }}>{"\u00d7"}</button>
   </div>;
 }
@@ -339,12 +488,11 @@ function CeoSetup({ onComplete }) {
   };
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'DM Sans',sans-serif", background: "#fafafa" }}>
-      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&display=swap" rel="stylesheet" />
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: S.font, background: S.bg }}>
       <div style={{ width: "100%", maxWidth: 420, padding: 20 }}>
         <div style={{ textAlign: "center", marginBottom: 32 }}>
           <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: -0.5, marginBottom: 4 }}>{"\u25ce"} Checkin</div>
-          <div style={{ fontSize: 14, color: "#6b7280" }}>Set up your account</div>
+          <div style={{ fontSize: 14, color: S.textMuted }}>Set up your account</div>
         </div>
 
         {step === 0 && (
@@ -413,12 +561,11 @@ function LoginScreen({ cfg, onLogin }) {
   };
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'DM Sans',sans-serif", background: "#fafafa" }}>
-      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&display=swap" rel="stylesheet" />
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: S.font, background: S.bg }}>
       <div style={{ width: "100%", maxWidth: 380, padding: 20 }}>
         <div style={{ textAlign: "center", marginBottom: 32 }}>
           <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: -0.5, marginBottom: 4 }}>{"\u25ce"} Checkin</div>
-          <div style={{ fontSize: 14, color: "#6b7280" }}>Sign in</div>
+          <div style={{ fontSize: 14, color: S.textMuted }}>Sign in</div>
         </div>
         <div style={{ background: "#fff", borderRadius: 16, border: "1px solid #e5e7eb", padding: "28px 24px" }}>
           <label style={{ fontSize: 13, fontWeight: 500, display: "block", marginBottom: 5 }}>Email</label>
@@ -442,9 +589,11 @@ function LoginScreen({ cfg, onLogin }) {
 // ═══════════════════════════════════════════════════════════
 // MEMBER DASHBOARD
 // ═══════════════════════════════════════════════════════════
-function MemberDash({ uid, m, getTeam, wci, dci, cmt, kpiP, stuckRes, seen, pto, save, logout, cfg, saveCfg, compId }) {
+function MemberDash({ uid, m, getTeam, wci, dci, cmt, kpiP, stuckRes, seen, pto, save, logout, cfg, saveCfg, compId, hash, navigate }) {
   const [teamKey] = getTeam(uid) || [];
-  const [tab, setTab] = useState("daily");
+  const route = parseRoute(hash);
+  const tab = route.view === "weekly" ? "weekly" : "daily";
+  const setTab = useCallback((t) => navigate(t), [navigate]);
   const [showPwChange, setShowPwChange] = useState(false);
   const [newPw, setNewPw] = useState("");
   const [pwSaved, setPwSaved] = useState(false);
@@ -487,9 +636,9 @@ function MemberDash({ uid, m, getTeam, wci, dci, cmt, kpiP, stuckRes, seen, pto,
   }, [tab, cmt, uid, seen, save]);
 
   return (
-    <div style={{ minHeight: "100vh", fontFamily: "'DM Sans',-apple-system,sans-serif", background: "#fafafa", display: "flex", flexDirection: "column" }}>
-      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&display=swap" rel="stylesheet" />
-      <div style={{ background: "#fff", borderBottom: "1px solid #e5e7eb", padding: "10px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+    <div style={{ minHeight: "100vh", fontFamily: S.font, background: S.bg, display: "flex", flexDirection: "column" }}>
+      <style>{GLOBAL_STYLES}</style>
+      <div style={{ background: S.bgWhite, borderBottom: `1px solid ${S.border}`, padding: "10px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={{ fontSize: 18 }}>{"\u25ce"}</span><span style={{ fontSize: 15, fontWeight: 700, letterSpacing: -0.3 }}>Checkin</span></div>
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
           <button onClick={() => { setShowTzPicker(!showTzPicker); setShowPwChange(false); }} style={{ background: "none", border: "none", fontSize: 12, color: "#9ca3af", cursor: "pointer", fontFamily: "inherit" }}>{"\ud83c\udf10"} Timezone</button>
@@ -553,6 +702,12 @@ function MemberDash({ uid, m, getTeam, wci, dci, cmt, kpiP, stuckRes, seen, pto,
   );
 }
 
+// ─── Daily prompts rotation ──────────────────────────────
+const WORKED_HINTS = ["What was your biggest win?", "Did anything surprise you?", "What moved the needle most?", "What are you proudest of?", "What would you repeat tomorrow?"];
+const DIDNT_HINTS = ["What would you do differently?", "Where did you lose time?", "What almost worked but didn't?", "What frustrated you most?"];
+const PLAN_HINTS = ["What's your #1 priority?", "What would make tomorrow a great day?", "What's the one thing you must finish?", "Where will you focus first?"];
+function getDailyHint(hints, dateStr) { const idx = dateStr.split("-").reduce((a, b) => a + parseInt(b), 0) % hints.length; return hints[idx]; }
+
 // ─── Daily (Member) ───────────────────────────────────────
 function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
   const selDays = useMemo(() => memberSelectableDays(), []);
@@ -563,6 +718,7 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
   const [plan, setPlan] = useState("");
   const [stuck, setStuck] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [stuckErr, setStuckErr] = useState(false);
   const didntRef = useRef(null);
 
@@ -607,17 +763,20 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
   const isFutureDate = selDate > ds(getToday());
 
   const submit = async () => {
-    if (!worked.trim() || isFutureDate) return;
+    if (!worked.trim() || isFutureDate || submitting) return;
     if (stuck && !didnt.trim()) { setStuckErr(true); didntRef.current?.focus(); return; }
     if (existing && !window.confirm("You already submitted for this day. Overwrite your previous entry?")) return;
-    const key = `${uid}:${selDate}`;
-    const isEdit = !!existing;
-    const entry = { worked, didnt, plan, stuck, at: new Date().toISOString() };
-    if (isEdit) { entry.edited = true; entry.originalAt = existing.originalAt || existing.at; }
-    else { entry.originalAt = entry.at; }
-    await save({ dci: { ...dci, [key]: entry } });
-    try { localStorage.removeItem(draftKey); } catch {}
-    setSaved(true); setTimeout(() => setSaved(false), 4000);
+    setSubmitting(true);
+    try {
+      const key = `${uid}:${selDate}`;
+      const isEdit = !!existing;
+      const entry = { worked, didnt, plan, stuck, at: new Date().toISOString() };
+      if (isEdit) { entry.edited = true; entry.originalAt = existing.originalAt || existing.at; }
+      else { entry.originalAt = entry.at; }
+      await save({ dci: { ...dci, [key]: entry } });
+      try { localStorage.removeItem(draftKey); } catch {}
+      setSaved(true); setTimeout(() => setSaved(false), 4000);
+    } finally { setSubmitting(false); }
   };
 
   const dailyCmt = cmt[`d:${uid}:${selDate}`];
@@ -626,18 +785,19 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
   const today = getToday();
   const canTogglePto = selDate === ds(today);
 
+  const [showAllRecent, setShowAllRecent] = useState(false);
   const recentDays = useMemo(() => {
-    const days = []; const all = getWeekdaysBack(10, new Date(getToday().getTime() - 864e5));
+    const days = []; const all = getWeekdaysBack(20, new Date(getToday().getTime() - 864e5));
     for (const d of all) {
       if (d === selDate) continue;
       const e = dci[`${uid}:${d}`];
       const isPtoDay = !!pto[`${uid}:${d}`];
       if (e) days.push({ date: d, ...e, cmt: cmt[`d:${uid}:${d}`], isPto: isPtoDay });
       else days.push({ date: d, missed: true, isPto: isPtoDay });
-      if (days.length >= 5) break;
     }
     return days;
   }, [uid, dci, cmt, pto, selDate]);
+  const visibleRecent = showAllRecent ? recentDays : recentDays.slice(0, 5);
 
   return (
     <>
@@ -645,7 +805,7 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
       <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "12px 16px", marginBottom: 16 }}>
         <div style={{ fontSize: 11, color: "#9ca3af", fontWeight: 500, textTransform: "uppercase", letterSpacing: 0.8 }}>{selDate === ds(getToday()) ? "Today" : dayLabel(selDate)}</div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
-          <span style={{ fontSize: 18, fontWeight: 700, color: isPto ? "#6366f1" : existing ? "#10b981" : "#f59e0b" }}>{isPto ? "\u2708 PTO" : existing ? "\u2713 Submitted" : "Pending"}</span>
+          <span style={{ fontSize: 18, fontWeight: 700, color: isPto ? C.info : existing ? C.success : C.warning }}>{isPto ? "\u2708 PTO" : existing ? "\u2713 Submitted" : "Pending"}</span>
           {existing && isLate(selDate, existing.at, tz) && <LateBadge />}
         </div>
         {existing?.at && <div style={{ fontSize: 11, color: isLate(selDate, existing.at, tz) ? "#b45309" : "#9ca3af", marginTop: 2 }}>{fmtSubmission(selDate, existing.at, tz)}</div>}
@@ -654,16 +814,18 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 4, marginBottom: 16 }}>
         {selDays.map(d => {
           const sel = d === selDate; const has = !!dci[`${uid}:${d}`]; const isPtoDay = !!pto[`${uid}:${d}`]; const isFuture = d > ds(getToday());
+          const canPto = d === ds(getToday());
           const statusColor = has ? "#10b981" : isPtoDay ? "#6366f1" : null;
           return <button key={d} onClick={() => setSelDate(d)} style={{
-            padding: "8px 2px", borderRadius: 10, border: "2px solid", borderColor: sel ? "#111" : "#e5e7eb",
-            background: sel ? "#111" : "#fff", color: sel ? "#fff" : "#374151", fontSize: 13, fontWeight: sel ? 700 : 500,
+            padding: "8px 2px", borderRadius: 10, border: "2px solid", borderColor: sel ? "#111" : isPtoDay ? "#c7d2fe" : "#e5e7eb",
+            background: sel ? "#111" : isPtoDay ? "#eef2ff" : "#fff", color: sel ? "#fff" : "#374151", fontSize: 13, fontWeight: sel ? 700 : 500,
             cursor: "pointer", fontFamily: "inherit", textAlign: "center", position: "relative", opacity: isFuture ? 0.4 : 1,
             minWidth: 0,
           }}>
             <div style={{ fontSize: 12, fontWeight: 600 }}>{dayLabel(d).split(" ")[0]}</div>
-            <div style={{ fontSize: 13, fontWeight: 700, marginTop: 1 }}>{parseInt(d.split("-")[2])}</div>
-            {statusColor && <div style={{ width: 6, height: 6, borderRadius: "50%", background: sel ? "#fff" : statusColor, position: "absolute", top: 4, right: 4 }} />}
+            <div style={{ fontSize: 13, fontWeight: 700, marginTop: 1 }}>{isPtoDay ? "\u2708" : parseInt(d.split("-")[2])}</div>
+            {statusColor && !isPtoDay && <div style={{ width: 6, height: 6, borderRadius: "50%", background: sel ? "#fff" : statusColor, position: "absolute", top: 4, right: 4 }} />}
+            {canPto && sel && !has && <div onClick={(e) => { e.stopPropagation(); const k = `${uid}:${d}`; const np = { ...pto }; if (np[k]) delete np[k]; else np[k] = true; save({ pto: np }); }} style={{ position: "absolute", bottom: -2, right: -2, width: 18, height: 18, borderRadius: "50%", background: isPtoDay ? "#6366f1" : "#f3f4f6", border: "1.5px solid #fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, cursor: "pointer", color: isPtoDay ? "#fff" : "#9ca3af" }}>{"\u2708"}</div>}
           </button>;
         })}
       </div>
@@ -692,23 +854,25 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
           </div>
         ) : (<>
           <div style={{ marginBottom: 16 }}>
-            <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 5, color: "#10b981" }}>1. What worked today? <span style={{ fontWeight: 400, color: "#6b7280" }}>Include numbers.</span></label>
-            <textarea value={worked} onChange={e => setWorked(e.target.value)} rows={3} placeholder="e.g. Closed 3 deals worth $12K, finished onboarding deck, 15 cold calls — 4 booked"
-              style={{ width: "100%", padding: "11px 14px", borderRadius: 10, border: "1.5px solid #e5e7eb", fontSize: 14, fontFamily: "inherit", outline: "none", resize: "vertical", boxSizing: "border-box", lineHeight: 1.5 }}
-              onFocus={e => e.target.style.borderColor = "#10b981"} onBlur={e => e.target.style.borderColor = "#e5e7eb"} />
+            <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 5, color: "#10b981" }}>1. What worked today? <span style={{ color: "#ef4444", fontWeight: 700 }}>*</span> <span style={{ fontWeight: 400, color: S.textFaint, fontSize: 12 }}>{getDailyHint(WORKED_HINTS, selDate)}</span></label>
+            <textarea value={worked} onChange={e => setWorked(e.target.value)} rows={3} maxLength={LIMITS.daily} placeholder="e.g. Closed 3 deals worth $12K, finished onboarding deck, 15 cold calls — 4 booked"
+              style={{ ...S.inputStyle, resize: "vertical", lineHeight: 1.5 }} />
+            <CharCount value={worked} max={LIMITS.daily} />
           </div>
           <div style={{ marginBottom: 16 }}>
             <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 5, color: "#ef4444" }}>
-              2. What didn't work, and what are you changing? {stuck && <span style={{ color: "#ef4444" }}>*</span>}
+              2. What didn't work? {stuck ? <span style={{ color: "#ef4444", fontWeight: 700 }}>*</span> : <span style={{ fontWeight: 400, color: S.textFaint, fontSize: 11 }}>(optional)</span>} <span style={{ fontWeight: 400, color: S.textFaint, fontSize: 12 }}>{getDailyHint(DIDNT_HINTS, selDate)}</span>
             </label>
-            <textarea ref={didntRef} value={didnt} onChange={e => { setDidnt(e.target.value); if (e.target.value.trim()) setStuckErr(false); }} rows={2} placeholder="e.g. Demo fell through — switching to async video pitches next week"
-              style={{ width: "100%", padding: "11px 14px", borderRadius: 10, border: `1.5px solid ${(stuckErr || (stuck && !didnt.trim())) ? "#ef4444" : "#e5e7eb"}`, fontSize: 14, fontFamily: "inherit", outline: "none", resize: "vertical", boxSizing: "border-box", lineHeight: 1.5 }} />
+            <textarea ref={didntRef} value={didnt} onChange={e => { setDidnt(e.target.value); if (e.target.value.trim()) setStuckErr(false); }} rows={2} maxLength={LIMITS.daily} placeholder="e.g. Demo fell through — switching to async video pitches next week"
+              style={{ ...S.inputStyle, resize: "vertical", lineHeight: 1.5, borderColor: (stuckErr || (stuck && !didnt.trim())) ? "#ef4444" : S.border }} />
             {(stuckErr || (stuck && !didnt.trim())) && <div style={{ fontSize: 12, color: "#ef4444", marginTop: 4, fontWeight: 500 }}>{"\u26a0"} Required when stuck — describe what isn't working and what you're changing.</div>}
+            <CharCount value={didnt} max={LIMITS.daily} />
           </div>
           <div style={{ marginBottom: 16 }}>
-            <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 5, color: "#6366f1" }}>3. Plan for tomorrow — stuck on anything?</label>
-            <textarea value={plan} onChange={e => setPlan(e.target.value)} rows={2} placeholder="e.g. Follow up with 5 warm leads, prep Q2 forecast, need help with pricing approval"
-              style={{ width: "100%", padding: "11px 14px", borderRadius: 10, border: "1.5px solid #e5e7eb", fontSize: 14, fontFamily: "inherit", outline: "none", resize: "vertical", boxSizing: "border-box", lineHeight: 1.5 }} />
+            <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 5, color: "#6366f1" }}>3. Plan for tomorrow <span style={{ fontWeight: 400, color: S.textFaint, fontSize: 11 }}>(optional)</span> <span style={{ fontWeight: 400, color: S.textFaint, fontSize: 12 }}>{getDailyHint(PLAN_HINTS, selDate)}</span></label>
+            <textarea value={plan} onChange={e => setPlan(e.target.value)} rows={2} maxLength={LIMITS.daily} placeholder="e.g. Follow up with 5 warm leads, prep Q2 forecast, need help with pricing approval"
+              style={{ ...S.inputStyle, resize: "vertical", lineHeight: 1.5 }} />
+            <CharCount value={plan} max={LIMITS.daily} />
           </div>
           <button onClick={() => { const next = !stuck; setStuck(next); if (next && !didnt.trim()) { setStuckErr(true); setTimeout(() => didntRef.current?.focus(), 50); } else { setStuckErr(false); } }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderRadius: 12, border: "2px solid", borderColor: stuck ? "#ef4444" : "#f59e0b", background: stuck ? "#fef2f2" : "#fffbeb", cursor: "pointer", fontFamily: "inherit", width: "100%", marginBottom: 20, transition: "all 0.15s" }}>
             <span style={{ fontSize: 20, width: 32, height: 32, borderRadius: "50%", background: stuck ? "#ef4444" : "#f59e0b", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{stuck ? "\ud83d\udea8" : "?"}</span>
@@ -719,21 +883,28 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
           </button>
           {isFutureDate && <div style={{ textAlign: "center", padding: "10px", fontSize: 13, color: "#9ca3af", fontStyle: "italic" }}>Can't submit for a future date.</div>}
           <div style={{ position: "sticky", bottom: 0, background: "#fff", padding: "12px 0 4px", marginTop: 4, zIndex: 10 }}>
-            <button onClick={submit} disabled={!worked.trim() || isFutureDate} style={{ width: "100%", padding: "15px", borderRadius: 12, border: "none", background: !worked.trim() || isFutureDate ? "#e5e7eb" : saved ? "#10b981" : "#111", color: !worked.trim() || isFutureDate ? "#9ca3af" : "#fff", fontSize: 16, fontWeight: 700, cursor: worked.trim() && !isFutureDate ? "pointer" : "default", fontFamily: "inherit", transition: "background 0.2s" }}>
-              {saved ? "\u2713 Saved!" : existing ? "Update" : selDate !== ds(getToday()) ? `Submit for ${dayLabel(selDate)}` : "Submit daily update"}
+            <button onClick={submit} disabled={!worked.trim() || isFutureDate || submitting} style={{ width: "100%", padding: "15px", borderRadius: 12, border: "none", background: !worked.trim() || isFutureDate || submitting ? "#e5e7eb" : saved ? "#10b981" : "#111", color: !worked.trim() || isFutureDate || submitting ? "#9ca3af" : "#fff", fontSize: 16, fontWeight: 700, cursor: worked.trim() && !isFutureDate && !submitting ? "pointer" : "default", fontFamily: "inherit", transition: "background 0.2s" }}>
+              {submitting ? "Saving..." : saved ? "\u2713 Saved!" : existing ? "Update" : selDate !== ds(getToday()) ? `Submit for ${dayLabel(selDate)}` : "Submit daily update"}
             </button>
             {!isFutureDate && worked.trim() && <div style={{ textAlign: "center", fontSize: 10, color: "#9ca3af", marginTop: 4 }}>{navigator.platform?.includes("Mac") ? "\u2318" : "Ctrl"}+Enter</div>}
           </div>
         </>)}
 
         {stuckThread && stuckThread.length > 0 && (
-          <div style={{ marginTop: 16, padding: "12px 14px", borderRadius: 12, background: "#fef2f2", border: "1px solid #fecaca" }}>
-            <div style={{ fontSize: 11, color: "#dc2626", fontWeight: 600, marginBottom: 6 }}>{"\ud83d\udea8"} Stuck thread</div>
-            {stuckThread.map((msg, i) => (
-              <div key={i} style={{ fontSize: 13, color: msg.from === "ceo" ? "#065f46" : "#374151", marginBottom: 4, paddingLeft: msg.from === "ceo" ? 0 : 12 }}>
-                <span style={{ fontWeight: 600 }}>{msg.from === "ceo" ? "CEO" : "You"}:</span> {msg.text}
-              </div>
-            ))}
+          <div style={{ marginTop: 16, padding: "14px 16px", borderRadius: 12, background: "#fef2f2", border: "1px solid #fecaca" }}>
+            <div style={{ fontSize: 11, color: "#dc2626", fontWeight: 600, marginBottom: 10 }}>{"\ud83d\udea8"} Stuck thread</div>
+            {stuckThread.map((msg, i) => {
+              const isCeo = msg.from === "ceo";
+              return (
+                <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: isCeo ? "flex-start" : "flex-end", marginBottom: 8 }}>
+                  <div style={{ maxWidth: "85%", padding: "8px 12px", borderRadius: 10, background: isCeo ? "#ecfdf5" : "#fff", border: `1px solid ${isCeo ? "#a7f3d0" : "#e5e7eb"}` }}>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: isCeo ? "#065f46" : S.textMuted, marginBottom: 2 }}>{isCeo ? "CEO" : "You"}</div>
+                    <div style={{ fontSize: 13, color: S.textSecondary, ...S.textBlock }}>{msg.text}</div>
+                  </div>
+                  {msg.at && <div style={{ fontSize: 9, color: S.textFaint, marginTop: 2, paddingLeft: 4, paddingRight: 4 }}>{fmtTime(msg.at, tz)}</div>}
+                </div>
+              );
+            })}
             <MemberStuckReply uid={uid} date={selDate} stuckRes={stuckRes} save={save} />
           </div>
         )}
@@ -742,8 +913,11 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
       </div>
 
       {recentDays.length > 0 && <div>
-        <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 8 }}>Recent</div>
-        {recentDays.map(d => (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>Recent</span>
+          <span style={{ fontSize: 11, color: "#9ca3af" }}>{recentDays.length} days</span>
+        </div>
+        {visibleRecent.map(d => (
           <div key={d.date} style={{ background: d.missed ? "#fafafa" : "#fff", borderRadius: 12, border: "1px solid", borderColor: d.missed && !d.isPto ? "#fecaca" : "#e5e7eb", padding: "14px 16px", marginBottom: 8, opacity: d.missed ? 0.7 : 1 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: d.missed ? 0 : 6 }}>
               <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -758,12 +932,17 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
               )}
             </div>
             {!d.missed && <>
-              <div style={{ fontSize: 13, color: "#374151", lineHeight: 1.5, whiteSpace: "pre-line" }}>{d.worked}</div>
-              {d.didnt && <div style={{ fontSize: 12, color: "#ef4444", marginTop: 4, whiteSpace: "pre-line" }}>{"\u21b3"} {d.didnt}</div>}
+              <div style={{ fontSize: 13, color: "#374151", lineHeight: 1.5, whiteSpace: "pre-line", overflowWrap: "break-word", wordBreak: "break-word" }}>{d.worked}</div>
+              {d.didnt && <div style={{ fontSize: 12, color: "#ef4444", marginTop: 4, whiteSpace: "pre-line", overflowWrap: "break-word", wordBreak: "break-word" }}>{"\u21b3"} {d.didnt}</div>}
               {d.cmt && <div style={{ fontSize: 12, color: "#6366f1", marginTop: 4 }}>{"\ud83d\udcac"} {d.cmt.text}</div>}
             </>}
           </div>
         ))}
+        {recentDays.length > 5 && (
+          <button onClick={() => setShowAllRecent(!showAllRecent)} style={{ width: "100%", padding: "10px", borderRadius: 10, border: "1px solid #e5e7eb", background: "#fff", color: "#6366f1", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", marginTop: 4 }}>
+            {showAllRecent ? "Show less" : `Show ${recentDays.length - 5} more days`}
+          </button>
+        )}
       </div>}
     </>
   );
@@ -777,14 +956,22 @@ function WeeklyMember({ uid, m, wci, dci, cmt, kpiP, pto, save, tz }) {
   const [kpiStates, setKpiStates] = useState(m.kpis.map(() => ({ status: null, actual: "" })));
   const [challenge, setChallenge] = useState("");
   const [saved, setSaved] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [contextExpanded, setContextExpanded] = useState(false);
+  const [showAllWeeks, setShowAllWeeks] = useState(false);
 
   const wk = WEEKS[wIdx], key = `${uid}:${wk?.id}`, existing = wci[key];
   const locked = isLocked(wIdx), overdue = isOverdue(wIdx) && !existing, dl = timeLeft(wIdx);
-  const streak = getWkStreak(uid, wci), ceoComment = cmt[key];
+  const streak = getWkStreak(uid, wci, m), ceoComment = cmt[key];
   const allKpiSet = kpiStates.every(k => k.status);
-  const hist = useMemo(() => WEEKS.slice(0, CW + 1).map((_, i) => resolveWeek(uid, i, wci)), [uid, wci]);
-  const totalGreen = hist.filter(h => h === "green").length, totalScored = hist.filter(h => h).length;
-  const hitRate = totalScored > 0 ? Math.round((totalGreen / totalScored) * 100) : 0;
+  const startWeek = getMemberStartWeek(m);
+  const hist = useMemo(() => WEEKS.slice(0, CW + 1).map((_, i) => resolveWeek(uid, i, wci, m)), [uid, wci, m]);
+  const enrolledHist = hist.filter((h, i) => i >= startWeek && h !== "pre-enrollment");
+  const totalGreen = enrolledHist.filter(h => h === "green").length;
+  const totalActualRed = enrolledHist.filter(h => h === "red").length;
+  const totalAutoRed = enrolledHist.filter(h => h === "auto-red").length;
+  const totalScored = enrolledHist.filter(h => h).length;
+  const hitRate = totalScored > 0 ? Math.round((totalGreen / totalScored) * 100) : null;
   const dailySumm = weekDailySummary(uid, wIdx, dci, pto);
 
   const dailyContext = useMemo(() => {
@@ -799,12 +986,25 @@ function WeeklyMember({ uid, m, wci, dci, cmt, kpiP, pto, save, tz }) {
   }, [wIdx, existing]);
 
   const submit = async () => {
-    if (!allKpiSet || locked) return;
-    await save({ wci: { ...wci, [key]: { kpis: kpiStates, challenge, at: new Date().toISOString() } } });
-    setSaved(true); setTimeout(() => setSaved(false), 4000);
+    if (!allKpiSet || locked || submitting) return;
+    setSubmitting(true);
+    try {
+      await save({ wci: { ...wci, [key]: { kpis: kpiStates, challenge, at: new Date().toISOString() } } });
+      setSaved(true); setTimeout(() => setSaved(false), 4000);
+    } finally { setSubmitting(false); }
   };
 
-  const vs = Math.max(0, CW - 11), vw = WEEKS.slice(vs, CW + 1);
+  // Cmd+Enter / Ctrl+Enter to submit
+  useEffect(() => {
+    const handler = (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); submit(); } };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  });
+
+  const allWeekCount = CW + 1;
+  const vs = showAllWeeks ? Math.max(0, startWeek) : Math.max(0, CW - 11);
+  const vw = WEEKS.slice(vs, CW + 1);
+  const hasMoreWeeks = allWeekCount > 12 && !showAllWeeks;
 
   return (
     <>
@@ -816,17 +1016,52 @@ function WeeklyMember({ uid, m, wci, dci, cmt, kpiP, pto, save, tz }) {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
           <div style={{ display: "flex", gap: 16 }}>
             <div><div style={{ fontSize: 26, fontWeight: 800, letterSpacing: -1, color: "#10b981" }}>{totalGreen}</div><div style={{ fontSize: 11, color: "#6b7280" }}>green</div></div>
-            <div><div style={{ fontSize: 26, fontWeight: 800, letterSpacing: -1, color: totalScored - totalGreen > 0 ? "#ef4444" : "#d1d5db" }}>{totalScored - totalGreen}</div><div style={{ fontSize: 11, color: "#6b7280" }}>red</div></div>
-            <div><div style={{ fontSize: 26, fontWeight: 800, letterSpacing: -1, color: hitRate >= 70 ? "#10b981" : hitRate >= 50 ? "#f59e0b" : "#ef4444" }}>{hitRate}%</div><div style={{ fontSize: 11, color: "#6b7280" }}>hit rate</div></div>
+            <div title={totalAutoRed > 0 ? `${totalActualRed} missed + ${totalAutoRed} not submitted` : undefined}><div style={{ fontSize: 26, fontWeight: 800, letterSpacing: -1, color: totalActualRed + totalAutoRed > 0 ? "#ef4444" : "#d1d5db" }}>{totalActualRed}{totalAutoRed > 0 && <span style={{ fontSize: 16, color: S.textFaint, fontWeight: 600 }}>+{totalAutoRed}</span>}</div><div style={{ fontSize: 11, color: "#6b7280" }}>{totalAutoRed > 0 ? "red + auto" : "red"}</div></div>
+            <div title={`${hitRate != null ? hitRate + "%" : "N/A"} hit rate\n\nGreen: 70%+\nAmber: 50–69%\nRed: below 50%\n\nOnly counts weeks since you were added.`}><div style={{ fontSize: 26, fontWeight: 800, letterSpacing: -1, color: hitRate == null ? "#d1d5db" : hitRate >= 70 ? "#10b981" : hitRate >= 50 ? "#f59e0b" : "#ef4444", cursor: "help" }}>{hitRate != null ? hitRate + "%" : "N/A"}</div><div style={{ fontSize: 11, color: S.textMuted }}>hit rate</div></div>
           </div>
           {streak > 0 && <div style={{ background: streak >= 6 ? "#ecfdf5" : "#f3f4f6", padding: "6px 14px", borderRadius: 20, fontSize: 13, fontWeight: 700, color: streak >= 6 ? "#065f46" : "#6b7280" }}>{streak >= 6 ? "\ud83d\udd25 " : ""}{streak}w</div>}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: `repeat(${vw.length},1fr)`, gap: 4 }}>
-          {vw.map((w, vi) => { const ri = vs + vi, s = hist[ri], cur = ri === CW; return <div key={w.id} onClick={() => !isLocked(ri) && setWIdx(ri)} title={`${w.range}${s ? ` — ${s === "green" ? "Hit" : "Missed"}` : cur ? " — Current" : ""}`} style={{ aspectRatio: "1", borderRadius: 8, cursor: isLocked(ri) ? "default" : "pointer", background: s === "green" ? "#10b981" : s === "red" ? "#ef4444" : s === "auto-red" ? "#fca5a5" : cur ? "#f3f4f6" : "#f9fafb", border: ri === wIdx ? "2.5px solid #111" : "1.5px solid transparent", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", opacity: s === "auto-red" ? 0.5 : 1 }}>{s === "green" && <span style={{ color: "#fff", fontSize: 14, fontWeight: 800 }}>{"\u2713"}</span>}{(s === "red" || s === "auto-red") && <span style={{ color: "#fff", fontSize: 14, fontWeight: 800 }}>{"\u2717"}</span>}{!s && cur && <span style={{ fontSize: 9, color: "#9ca3af", fontWeight: 600 }}>NOW</span>}</div>; })}
+          {vw.map((w, vi) => {
+            const ri = vs + vi, s = hist[ri], cur = ri === CW, isFutureWk = ri > CW, isPast = ri < CW && !s;
+            const isPreEnroll = s === "pre-enrollment";
+            const isAutoRed = s === "auto-red";
+            const isLockedWk = isLocked(ri);
+            const dleft = cur ? timeLeft(ri) : null;
+            const lockReason = isLockedWk && w ? `Locked — grace period ended ${w.gr.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}` : "";
+            const tooltip = isPreEnroll ? `${w.range} — Not enrolled yet`
+              : s === "green" ? `${w.range} — Hit`
+              : isAutoRed ? `${w.range} — No submission (auto-red)\n${lockReason}`
+              : s === "red" ? `${w.range} — Missed`
+              : isFutureWk ? `${w.range} — Upcoming`
+              : cur ? `${w.range} — Current${dleft ? ` (${dleft} left)` : ""}`
+              : `${w.range} — Not submitted`;
+            const bg = s === "green" ? "#10b981" : s === "red" ? "#ef4444" : isAutoRed ? S.borderLight : isPreEnroll ? S.bg : cur ? S.borderLight : isFutureWk ? S.bg : "#f9fafb";
+            const bd = ri === wIdx ? "2.5px solid #111" : isAutoRed ? "1.5px dashed #f87171" : isPast && !isPreEnroll ? "1.5px dashed #d1d5db" : "1.5px solid transparent";
+            return <div key={w.id}
+              onClick={() => { if (isLockedWk && !isPreEnroll) alert(lockReason || "This week is locked."); else if (!isLockedWk) setWIdx(ri); }}
+              title={tooltip}
+              style={{ aspectRatio: "1", maxWidth: 56, borderRadius: 8, cursor: isPreEnroll || isFutureWk ? "default" : "pointer", background: bg, border: bd, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", transition: "all 0.15s", opacity: isPreEnroll ? 0.3 : isFutureWk ? 0.4 : 1 }}>
+              {s === "green" && <span style={{ color: "#fff", fontSize: 14, fontWeight: 800 }}>{"\u2713"}</span>}
+              {s === "red" && <span style={{ color: "#fff", fontSize: 14, fontWeight: 800 }}>{"\u2717"}</span>}
+              {isAutoRed && <span style={{ color: "#f87171", fontSize: 12, fontWeight: 700 }}>{"\u2014"}</span>}
+              {isPreEnroll && <span style={{ fontSize: 10, color: "#d1d5db" }}>{"\u2014"}</span>}
+              {!s && cur && <>
+                <span style={{ fontSize: 8, color: "#6366f1", fontWeight: 700 }}>NOW</span>
+                {dleft && <span style={{ fontSize: 7, color: S.textFaint, fontWeight: 500, marginTop: 1 }}>{dleft}</span>}
+              </>}
+              {!s && isPast && !isPreEnroll && <span style={{ fontSize: 10, color: "#d1d5db" }}>{"\u2014"}</span>}
+            </div>;
+          })}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: `repeat(${vw.length},1fr)`, gap: 4, marginTop: 3 }}>
-          {vw.map((w, vi) => <div key={w.id} title={w.range} style={{ textAlign: "center", fontSize: 9, color: vs + vi === wIdx ? "#111" : "#9ca3af", fontWeight: vs + vi === wIdx ? 700 : 400, cursor: "default" }}>{w.short}</div>)}
+          {vw.map((w, vi) => <div key={w.id} title={w.range} style={{ textAlign: "center", fontSize: 9, color: vs + vi === wIdx ? "#111" : "#9ca3af", fontWeight: vs + vi === wIdx ? 700 : 400, cursor: "default" }}>{w.label}</div>)}
         </div>
+        {(hasMoreWeeks || showAllWeeks) && (
+          <button onClick={() => setShowAllWeeks(!showAllWeeks)} style={{ background: "none", border: "none", fontSize: 10, color: "#6366f1", cursor: "pointer", fontFamily: "inherit", fontWeight: 500, marginTop: 6, padding: 0, display: "block", width: "100%", textAlign: "center" }}>
+            {showAllWeeks ? "Show recent 12 weeks" : `Show all ${allWeekCount} weeks`}
+          </button>
+        )}
       </div>
 
       <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "12px 16px", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -835,9 +1070,13 @@ function WeeklyMember({ uid, m, wci, dci, cmt, kpiP, pto, save, tz }) {
       </div>
 
       {dailyContext && (
-        <div style={{ background: "#f8fafc", borderRadius: 12, border: "1px solid #e2e8f0", padding: "12px 16px", marginBottom: 16, maxHeight: 120, overflow: "auto" }}>
-          <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 600, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>Your daily numbers this week</div>
-          <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.5, whiteSpace: "pre-line" }}>{dailyContext}</div>
+        <div style={{ background: "#f8fafc", borderRadius: 12, border: "1px solid #e2e8f0", padding: "12px 16px", marginBottom: 16, position: "relative" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+            <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>Your daily numbers this week</div>
+            <button onClick={() => setContextExpanded(!contextExpanded)} style={{ background: "none", border: "none", fontSize: 11, color: "#6366f1", cursor: "pointer", fontFamily: "inherit", fontWeight: 600, padding: 0 }}>{contextExpanded ? "Collapse" : "Expand"}</button>
+          </div>
+          <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.5, whiteSpace: "pre-line", overflowWrap: "break-word", wordBreak: "break-word", maxHeight: contextExpanded ? "none" : 80, overflow: "hidden" }}>{dailyContext}</div>
+          {!contextExpanded && dailyContext.split("\n").length > 3 && <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 32, background: "linear-gradient(transparent, #f8fafc)", borderRadius: "0 0 12px 12px", pointerEvents: "none" }} />}
         </div>
       )}
 
@@ -866,17 +1105,18 @@ function WeeklyMember({ uid, m, wci, dci, cmt, kpiP, pto, save, tz }) {
                       </button>
                     ))}
                   </div>
-                  <input value={kpiStates[ki]?.actual || ""} onChange={e => { const n = [...kpiStates]; n[ki] = { ...n[ki], actual: e.target.value }; setKpiStates(n); }} disabled={locked} placeholder="Actual result (e.g. $32K closed, 2 reviews done)"
-                    style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1.5px solid #e5e7eb", fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }} />
+                  <input value={kpiStates[ki]?.actual || ""} onChange={e => { const n = [...kpiStates]; n[ki] = { ...n[ki], actual: e.target.value }; setKpiStates(n); }} disabled={locked} maxLength={LIMITS.kpiActual} placeholder="Actual result (e.g. $32K closed, 2 reviews done)"
+                    style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1.5px solid ${S.border}`, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }} />
                 </div>
               ))}
             </div>
             <div style={{ marginBottom: 22 }}>
-              <label style={{ fontSize: 13, fontWeight: 500, display: "block", marginBottom: 5 }}>Challenges? <span style={{ fontWeight: 400, color: "#9ca3af" }}>(optional)</span></label>
-              <textarea value={challenge} onChange={e => setChallenge(e.target.value)} disabled={locked} placeholder="e.g. Pipeline slowed down — need marketing support on lead gen" rows={2} style={{ width: "100%", padding: "11px 14px", borderRadius: 10, border: "1.5px solid #e5e7eb", fontSize: 14, fontFamily: "inherit", outline: "none", resize: "vertical", boxSizing: "border-box" }} />
+              <label style={{ fontSize: 13, fontWeight: 500, display: "block", marginBottom: 5 }}>Challenges? <span style={{ fontWeight: 400, color: S.textFaint }}>(optional)</span></label>
+              <textarea value={challenge} onChange={e => setChallenge(e.target.value)} disabled={locked} maxLength={LIMITS.challenge} placeholder="e.g. Pipeline slowed down — need marketing support on lead gen" rows={2} style={{ ...S.inputStyle, resize: "vertical" }} />
+              <CharCount value={challenge} max={LIMITS.challenge} />
             </div>
-            <button onClick={submit} disabled={!allKpiSet || locked} style={{ width: "100%", padding: "15px", borderRadius: 12, border: "none", background: !allKpiSet || locked ? "#e5e7eb" : saved ? "#10b981" : "#111", color: !allKpiSet || locked ? "#9ca3af" : "#fff", fontSize: 16, fontWeight: 700, cursor: allKpiSet && !locked ? "pointer" : "default", fontFamily: "inherit" }}>
-              {saved ? "\u2713 Saved!" : existing ? "Update" : "Submit"}
+            <button onClick={submit} disabled={!allKpiSet || locked || submitting} style={{ width: "100%", padding: "15px", borderRadius: 12, border: "none", background: !allKpiSet || locked || submitting ? "#e5e7eb" : saved ? "#10b981" : "#111", color: !allKpiSet || locked || submitting ? "#9ca3af" : "#fff", fontSize: 16, fontWeight: 700, cursor: allKpiSet && !locked && !submitting ? "pointer" : "default", fontFamily: "inherit" }}>
+              {submitting ? "Saving..." : saved ? "\u2713 Saved!" : existing ? "Update" : "Submit"}
             </button>
           </>
         )}
@@ -897,7 +1137,8 @@ function WeeklyMember({ uid, m, wci, dci, cmt, kpiP, pto, save, tz }) {
             {pastWeeks.map(({ wi: pwi, entry: pe }) => {
               const pwk = WEEKS[pwi];
               const pCmt = cmt[`${uid}:${pwk.id}`];
-              const pStatus = resolveWeek(uid, pwi, wci);
+              const pStatus = resolveWeek(uid, pwi, wci, m);
+              if (pStatus === "pre-enrollment") return null;
               return (
                 <div key={pwk.id} style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "14px 16px", marginBottom: 8 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
@@ -931,15 +1172,19 @@ function WeeklyMember({ uid, m, wci, dci, cmt, kpiP, pto, save, tz }) {
 // ═══════════════════════════════════════════════════════════
 // CEO DASHBOARD
 // ═══════════════════════════════════════════════════════════
-function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cmt, kpiP, stuckRes, seen, pto, save, cfg, saveCfg, switchCompany, logout }) {
+function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cmt, kpiP, stuckRes, seen, pto, save, cfg, saveCfg, switchCompany, logout, hash, navigate }) {
   const TEAMS = comp.teams;
   const CW = getCW();
-  const [view, setView] = useState("daily");
+  const route = parseRoute(hash);
+  const view = ["daily", "weekly", "heatmap"].includes(route.view) ? route.view : "daily";
+  const setView = useCallback((v) => { navigate(v); }, [navigate]);
   const [wIdx, setWIdx] = useState(() => getCW());
   const [filter, setFilter] = useState(null);
-  const [drillPerson, setDrillPerson] = useState(null);
+  const drillPerson = route.sub === "drill" && route.param ? route.param : null;
+  const setDrillPerson = useCallback((id) => { if (id) navigate(`${view}/drill/${id}`); else navigate(view); }, [navigate, view]);
   const [copied, setCopied] = useState(null);
-  const [showAdmin, setShowAdmin] = useState(false);
+  const showAdmin = route.view === "admin";
+  const setShowAdmin = useCallback((v) => { if (v) navigate("admin"); else navigate("daily"); }, [navigate]);
   const [viewAsMember, setViewAsMember] = useState(null);
   const [viewAsOpen, setViewAsOpen] = useState(false);
 
@@ -948,7 +1193,7 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
 
   const filteredMembers = useMemo(() => filter ? (TEAMS[filter]?.members || []) : allMembers, [filter, allMembers, TEAMS]);
 
-  const rs = useCallback((uid, wi) => resolveWeek(uid, wi, wci), [wci]);
+  const rs = useCallback((uid, wi, member) => resolveWeek(uid, wi, wci, member), [wci]);
 
   const [feedDate, setFeedDate] = useState(lastCompletedWeekday());
   const browDays = useMemo(() => ceoBrowsableDays(), []);
@@ -958,7 +1203,7 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
   // Weekly table data
   const weeklyTableData = useMemo(() => {
     return filteredMembers.map(m => {
-      const hist = WEEKS.slice(0, CW + 1).map((_, i) => rs(m.id, i));
+      const hist = WEEKS.slice(0, CW + 1).map((_, i) => rs(m.id, i, m));
       const dSumm = weekDailySummary(m.id, wIdx, dci, pto);
       return { ...m, hist, dSumm, weekEntry: wci[`${m.id}:${wk?.id}`] };
     });
@@ -1012,7 +1257,7 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
     const days = weekdaysInWeek(drillWeekIdx);
     const dailies = days.map(d => ({ date: d, entry: dci[`${m.id}:${d}`] || null, cmt: cmt[`d:${m.id}:${d}`] || null }));
     const weeklyEntry = wci[`${m.id}:${drillWk?.id}`];
-    return { m, dailies, weeklyEntry, weekStatus: rs(m.id, drillWeekIdx) };
+    return { m, dailies, weeklyEntry, weekStatus: rs(m.id, drillWeekIdx, m) };
   }, [drillPerson, drillWeekIdx, dci, cmt, wci, allMembers]);
 
   const vs = Math.max(0, CW - 11), vw = WEEKS.slice(vs, CW + 1);
@@ -1028,8 +1273,7 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
   // ─── View as member ───
   if (viewAsMember) {
     return (
-      <div style={{ fontFamily: "'DM Sans',-apple-system,sans-serif" }}>
-        <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&display=swap" rel="stylesheet" />
+      <div style={{ fontFamily: S.font }}>
         <div style={{ background: "#111", color: "#fff", padding: "8px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 11, background: "rgba(255,255,255,0.15)", padding: "2px 8px", borderRadius: 4, fontWeight: 600 }}>PREVIEW</span>
@@ -1047,8 +1291,7 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
   }
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", fontFamily: "'DM Sans',-apple-system,sans-serif", background: "#fafafa", color: "#111" }}>
-      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&display=swap" rel="stylesheet" />
+    <div style={{ display: "flex", minHeight: "100vh", fontFamily: S.font, background: S.bg, color: S.textPrimary }}>
 
       {/* Sidebar */}
       <div style={{ width: 200, background: "#fff", borderRight: "1px solid #e5e7eb", padding: "20px 0", flexShrink: 0, display: "flex", flexDirection: "column" }}>
@@ -1069,7 +1312,7 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
         )}
 
         <SideLabel>View</SideLabel>
-        {[["daily", "\ud83d\udccb Daily Feed"], ["weekly", "\u25ce Weekly KPIs"], ["heatmap", "\u25a6 Heatmap"]].map(([id, l]) => (<SideBtn key={id} active={view === id} onClick={() => { setView(id); setDrillPerson(null); }}>{l}</SideBtn>))}
+        {[["daily", "\ud83d\udccb Daily Feed"], ["weekly", "\u25ce Weekly KPIs"], ["heatmap", "\u25a6 Heatmap"]].map(([id, l]) => (<SideBtn key={id} active={view === id} onClick={() => navigate(id)}>{l}</SideBtn>))}
 
         {Object.keys(TEAMS).length > 0 && <>
           <SideLabel>Teams</SideLabel>
@@ -1077,7 +1320,7 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
         </>}
 
         <div style={{ flex: 1 }} />
-        {stuckCount > 0 && view !== "daily" && <div style={{ padding: "10px 20px", borderTop: "1px solid #f3f4f6", fontSize: 12, color: "#dc2626", fontWeight: 600, cursor: "pointer" }} onClick={() => { setView("daily"); setDrillPerson(null); }}>{"\ud83d\udea8"} {stuckCount} stuck</div>}
+        {stuckCount > 0 && view !== "daily" && <div style={{ padding: "10px 20px", borderTop: "1px solid #f3f4f6", fontSize: 12, color: "#dc2626", fontWeight: 600, cursor: "pointer" }} onClick={() => navigate("daily")}>{"\ud83d\udea8"} {stuckCount} stuck</div>}
         <div style={{ padding: "6px 12px", borderTop: "1px solid #f3f4f6" }}>
           <button onClick={() => setShowAdmin(true)} style={{ width: "100%", padding: "7px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", fontSize: 12, cursor: "pointer", fontFamily: "inherit", color: "#6b7280", marginBottom: 4 }}>{"\u2699"} Manage</button>
           <div style={{ position: "relative", marginBottom: 4 }}>
@@ -1146,9 +1389,9 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
                     </div>
                     {d.entry ? (
                       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                        <div><div style={{ fontSize: 11, fontWeight: 600, color: "#10b981", marginBottom: 2 }}>WORKED</div><div style={{ fontSize: 13, color: "#374151", whiteSpace: "pre-line" }}>{d.entry.worked}</div></div>
-                        {d.entry.didnt && <div><div style={{ fontSize: 11, fontWeight: 600, color: "#ef4444", marginBottom: 2 }}>DIDN'T WORK {"\u2192"} CHANGING</div><div style={{ fontSize: 13, color: "#374151", whiteSpace: "pre-line" }}>{d.entry.didnt}</div></div>}
-                        {d.entry.plan && <div><div style={{ fontSize: 11, fontWeight: 600, color: "#6366f1", marginBottom: 2 }}>PLAN</div><div style={{ fontSize: 13, color: "#374151", whiteSpace: "pre-line" }}>{d.entry.plan}</div></div>}
+                        <div><div style={{ fontSize: 11, fontWeight: 600, color: "#10b981", marginBottom: 2 }}>WORKED</div><div style={{ fontSize: 13, color: "#374151", whiteSpace: "pre-line", overflowWrap: "break-word", wordBreak: "break-word" }}>{d.entry.worked}</div></div>
+                        {d.entry.didnt && <div><div style={{ fontSize: 11, fontWeight: 600, color: "#ef4444", marginBottom: 2 }}>DIDN'T WORK {"\u2192"} CHANGING</div><div style={{ fontSize: 13, color: "#374151", whiteSpace: "pre-line", overflowWrap: "break-word", wordBreak: "break-word" }}>{d.entry.didnt}</div></div>}
+                        {d.entry.plan && <div><div style={{ fontSize: 11, fontWeight: 600, color: "#6366f1", marginBottom: 2 }}>PLAN</div><div style={{ fontSize: 13, color: "#374151", whiteSpace: "pre-line", overflowWrap: "break-word", wordBreak: "break-word" }}>{d.entry.plan}</div></div>}
                         {d.cmt && <div style={{ fontSize: 12, color: "#6366f1", marginTop: 4 }}>{"\ud83d\udcac"} {d.cmt.text}</div>}
                         {d.entry && !d.cmt && <DrillCmtInput onSave={(txt) => saveDailyCmt(drillData.m.id, d.date, txt)} />}
                       </div>
@@ -1183,7 +1426,7 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
                       <div key={pwi} style={{ background: "#f9fafb", borderRadius: 10, border: "1px solid #e5e7eb", padding: "10px 14px", marginBottom: 6 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: pe?.kpis ? 6 : 0 }}>
                           <span style={{ fontSize: 12, fontWeight: 600 }}>{WEEKS[pwi].range}</span>
-                          <span style={{ fontSize: 11, color: resolveWeek(drillData.m.id, pwi, wci) === "green" ? "#10b981" : "#ef4444", fontWeight: 600 }}>{resolveWeek(drillData.m.id, pwi, wci) === "green" ? "\u2713 Green" : "\u2717 Red"}</span>
+                          <span style={{ fontSize: 11, color: resolveWeek(drillData.m.id, pwi, wci, drillData.m) === "green" ? "#10b981" : "#ef4444", fontWeight: 600 }}>{resolveWeek(drillData.m.id, pwi, wci, drillData.m) === "green" ? "\u2713 Green" : "\u2717 Red"}</span>
                         </div>
                         {pe?.kpis && drillData.m.kpis.map((kpi, ki) => { const k = pe.kpis[ki]; return k ? <div key={ki} style={{ fontSize: 11, color: "#6b7280", display: "flex", justifyContent: "space-between", padding: "2px 0" }}><span>{kpi}</span>{k.actual && <span>{k.actual}</span>}</div> : null; })}
                         {pc && <div style={{ fontSize: 11, color: "#6366f1", marginTop: 4 }}>{"\ud83d\udcac"} {pc.text}</div>}
@@ -1286,7 +1529,7 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
                       {filteredMembers.map(m => (
                         <React.Fragment key={m.id}>
                           <div style={{ fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }} onClick={() => setDrillPerson(m.id)}><Av i={m.av} s={20} />{m.name.split(" ")[0]}</div>
-                          {vw.map((w, vi) => { const s = rs(m.id, vs + vi); return <div key={w.id} title={`${w.range} — ${s === "green" ? "Hit" : s ? "Missed" : "Pending"}`} style={{ height: 28, borderRadius: s === "green" ? 14 : 4, display: "flex", alignItems: "center", justifyContent: "center", background: s === "green" ? "#d1fae5" : s === "red" || s === "auto-red" ? "#fee2e2" : "#f3f4f6", border: vs + vi === wIdx ? "2px solid #111" : s === "green" ? "1.5px solid #10b981" : s ? "1.5px solid #ef4444" : "1px solid transparent" }}>{s === "green" ? <span style={{ fontSize: 12, color: "#065f46", fontWeight: 800 }}>{"\u2713"}</span> : s ? <span style={{ fontSize: 12, color: "#991b1b", fontWeight: 800 }}>{"\u2717"}</span> : <span style={{ fontSize: 11, color: "#d1d5db" }}>{"\u00b7"}</span>}</div>; })}
+                          {vw.map((w, vi) => { const s = rs(m.id, vs + vi, m); return <div key={w.id} title={`${w.range} — ${s === "green" ? "Hit" : s === "pre-enrollment" ? "Not enrolled" : s ? "Missed" : "Pending"}`} style={{ height: 28, borderRadius: s === "green" ? 14 : 4, display: "flex", alignItems: "center", justifyContent: "center", background: s === "green" ? "#d1fae5" : s === "pre-enrollment" ? "#f9fafb" : s === "red" || s === "auto-red" ? "#fee2e2" : "#f3f4f6", border: vs + vi === wIdx ? "2px solid #111" : s === "green" ? "1.5px solid #10b981" : s === "pre-enrollment" ? "1px solid transparent" : s ? "1.5px solid #ef4444" : "1px solid transparent" }}>{s === "green" ? <span style={{ fontSize: 12, color: "#065f46", fontWeight: 800 }}>{"\u2713"}</span> : s === "pre-enrollment" ? <span style={{ fontSize: 11, color: "#d1d5db" }}>{"\u2014"}</span> : s ? <span style={{ fontSize: 12, color: "#991b1b", fontWeight: 800 }}>{"\u2717"}</span> : <span style={{ fontSize: 11, color: "#d1d5db" }}>{"\u00b7"}</span>}</div>; })}
                           <div style={{ fontSize: 9, color: "#9ca3af", textAlign: "right" }}>daily</div>
                           {vw.map((w, vi) => { const days = weekdaysInWeek(vs + vi); const ptoCt = days.filter(d => pto[`${m.id}:${d}`]).length; const ct = days.filter(d => dci[`${m.id}:${d}`]).length; const tot = days.length - ptoCt; const pct = tot ? ct / tot : 0; return <div key={w.id + "d"} style={{ height: 16, borderRadius: 3, display: "flex", alignItems: "center", justifyContent: "center", background: pct >= 0.8 ? "#dbeafe" : pct >= 0.4 ? "#fef3c7" : "#f3f4f6" }}><span style={{ fontSize: 9, color: pct >= 0.8 ? "#1e40af" : pct >= 0.4 ? "#92400e" : "#d1d5db", fontWeight: 500 }}>{ct}/{tot}</span></div>; })}
                         </React.Fragment>
@@ -1347,7 +1590,7 @@ function AdminPanel({ cfg, saveCfg, compId, comp, onClose }) {
     const kpis = kpiLines.map(s => s.trim()).filter(Boolean);
     const av = newMember.name.trim().split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
     const rawPw = newMember.pw || "change-me";
-    const member = { id: mid, name: newMember.name.trim(), email, pw: await hashPw(rawPw), role: newMember.role.trim() || "Team member", av, kpis };
+    const member = { id: mid, name: newMember.name.trim(), email, pw: await hashPw(rawPw), role: newMember.role.trim() || "Team member", av, kpis, addedAt: new Date().toISOString() };
     const team = comp.teams[teamId];
     const newTeam = { ...team, members: [...team.members, member] };
     const newCfg = {
@@ -1406,11 +1649,10 @@ function AdminPanel({ cfg, saveCfg, compId, comp, onClose }) {
   };
 
   return (
-    <div style={{ minHeight: "100vh", fontFamily: "'DM Sans',-apple-system,sans-serif", background: "#fafafa" }}>
-      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&display=swap" rel="stylesheet" />
-      <div style={{ background: "#fff", borderBottom: "1px solid #e5e7eb", padding: "12px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+    <div style={{ minHeight: "100vh", fontFamily: S.font, background: S.bg }}>
+      <div style={{ background: S.bgWhite, borderBottom: `1px solid ${S.border}`, padding: "12px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 14, color: "#6b7280", cursor: "pointer", fontFamily: "inherit" }}>{"\u2190"} Back</button>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 14, color: S.textMuted, cursor: "pointer", fontFamily: "inherit" }}>{"\u2190"} Back</button>
           <span style={{ fontSize: 16, fontWeight: 700 }}>{"\u2699"} Manage — {comp.name}</span>
         </div>
       </div>
@@ -1653,14 +1895,14 @@ function DailyCardCeo({ entry: e, date, tz, onDrill, saveCmt, nudge, copied }) {
 
       {e.daily ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <div><div style={{ fontSize: 11, fontWeight: 600, color: "#10b981", marginBottom: 3, textTransform: "uppercase", letterSpacing: 0.5 }}>What worked</div><div style={{ fontSize: 13, color: "#374151", lineHeight: 1.5, whiteSpace: "pre-line" }}>{e.daily.worked}</div></div>
-          {e.daily.didnt && <div><div style={{ fontSize: 11, fontWeight: 600, color: "#ef4444", marginBottom: 3, textTransform: "uppercase", letterSpacing: 0.5 }}>Didn't work {"\u2192"} changing</div><div style={{ fontSize: 13, color: "#374151", lineHeight: 1.5, whiteSpace: "pre-line" }}>{e.daily.didnt}</div></div>}
-          {e.daily.plan && <div><div style={{ fontSize: 11, fontWeight: 600, color: "#6366f1", marginBottom: 3, textTransform: "uppercase", letterSpacing: 0.5 }}>Tomorrow's plan</div><div style={{ fontSize: 13, color: "#374151", lineHeight: 1.5, whiteSpace: "pre-line" }}>{e.daily.plan}</div></div>}
+          <div><div style={{ fontSize: 11, fontWeight: 600, color: "#10b981", marginBottom: 3, textTransform: "uppercase", letterSpacing: 0.5 }}>What worked</div><div style={{ fontSize: 13, color: "#374151", lineHeight: 1.5, whiteSpace: "pre-line", overflowWrap: "break-word", wordBreak: "break-word" }}>{e.daily.worked}</div></div>
+          {e.daily.didnt && <div><div style={{ fontSize: 11, fontWeight: 600, color: "#ef4444", marginBottom: 3, textTransform: "uppercase", letterSpacing: 0.5 }}>Didn't work {"\u2192"} changing</div><div style={{ fontSize: 13, color: "#374151", lineHeight: 1.5, whiteSpace: "pre-line", overflowWrap: "break-word", wordBreak: "break-word" }}>{e.daily.didnt}</div></div>}
+          {e.daily.plan && <div><div style={{ fontSize: 11, fontWeight: 600, color: "#6366f1", marginBottom: 3, textTransform: "uppercase", letterSpacing: 0.5 }}>Tomorrow's plan</div><div style={{ fontSize: 13, color: "#374151", lineHeight: 1.5, whiteSpace: "pre-line", overflowWrap: "break-word", wordBreak: "break-word" }}>{e.daily.plan}</div></div>}
           <div style={{ borderTop: "1px solid #f3f4f6", paddingTop: 10 }}>
             {cmtOpen ? (
               <div style={{ display: "flex", gap: 8 }}>
-                <input value={cmtText} onChange={ev => setCmtText(ev.target.value)} placeholder="Feedback\u2026" autoFocus
-                  style={{ flex: 1, padding: "7px 12px", borderRadius: 8, border: "1.5px solid #e5e7eb", fontSize: 13, fontFamily: "inherit", outline: "none" }}
+                <input value={cmtText} onChange={ev => setCmtText(ev.target.value)} placeholder="Feedback\u2026" autoFocus maxLength={LIMITS.feedback}
+                  style={{ flex: 1, padding: "7px 12px", borderRadius: 8, border: `1.5px solid ${S.border}`, fontSize: 13, fontFamily: "inherit", outline: "none" }}
                   onKeyDown={ev => { if (ev.key === "Enter" && cmtText.trim()) { saveCmt(e.id, date, cmtText.trim()); setCmtOpen(false); } }} />
                 <button onClick={() => { if (cmtText.trim()) { saveCmt(e.id, date, cmtText.trim()); setCmtOpen(false); } }} style={{ padding: "7px 14px", borderRadius: 8, border: "none", background: "#6366f1", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Send</button>
                 <button onClick={() => setCmtOpen(false)} style={{ background: "none", border: "none", fontSize: 14, color: "#9ca3af", cursor: "pointer" }}>{"\u00d7"}</button>
@@ -1695,8 +1937,8 @@ function StuckCeoItem({ entry: e, date, onReply }) {
       {e.daily?.stuck && e.daily?.plan && <div style={{ fontSize: 12, color: "#374151", marginBottom: 6, paddingLeft: 30 }}>{e.daily.plan}</div>}
       {open ? (
         <div style={{ display: "flex", gap: 6, paddingLeft: 30 }}>
-          <input value={reply} onChange={ev => setReply(ev.target.value)} placeholder="Reply\u2026" autoFocus
-            style={{ flex: 1, padding: "6px 10px", borderRadius: 6, border: "1.5px solid #e5e7eb", fontSize: 12, fontFamily: "inherit", outline: "none" }}
+          <input value={reply} onChange={ev => setReply(ev.target.value)} placeholder="Reply\u2026" autoFocus maxLength={LIMITS.stuckReply}
+            style={{ flex: 1, padding: "6px 10px", borderRadius: 6, border: `1.5px solid ${S.border}`, fontSize: 12, fontFamily: "inherit", outline: "none" }}
             onKeyDown={ev => { if (ev.key === "Enter" && reply.trim()) { onReply(e.id, date, reply.trim()); setReply(""); setOpen(false); } }} />
           <button onClick={() => { if (reply.trim()) { onReply(e.id, date, reply.trim()); setReply(""); setOpen(false); } }} style={{ padding: "6px 12px", borderRadius: 6, border: "none", background: "#dc2626", color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Send</button>
         </div>
@@ -1719,10 +1961,10 @@ function MemberStuckReply({ uid, date, stuckRes, save }) {
   };
   return (
     <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-      <input value={text} onChange={e => setText(e.target.value)} placeholder="Reply\u2026"
-        style={{ flex: 1, padding: "6px 10px", borderRadius: 6, border: "1.5px solid #e5e7eb", fontSize: 12, fontFamily: "inherit", outline: "none" }}
+      <input value={text} onChange={e => setText(e.target.value)} placeholder="Reply\u2026" maxLength={LIMITS.stuckReply}
+        style={{ flex: 1, padding: "6px 10px", borderRadius: 6, border: `1.5px solid ${S.border}`, fontSize: 12, fontFamily: "inherit", outline: "none" }}
         onKeyDown={e => { if (e.key === "Enter") submit(); }} />
-      <button onClick={submit} disabled={!text.trim()} style={{ padding: "6px 12px", borderRadius: 6, border: "none", background: text.trim() ? "#111" : "#e5e7eb", color: text.trim() ? "#fff" : "#9ca3af", fontSize: 11, fontWeight: 600, cursor: text.trim() ? "pointer" : "default", fontFamily: "inherit" }}>Send</button>
+      <button onClick={submit} disabled={!text.trim()} style={{ padding: "6px 12px", borderRadius: 6, border: "none", background: text.trim() ? "#111" : "#e5e7eb", color: text.trim() ? "#fff" : S.textFaint, fontSize: 11, fontWeight: 600, cursor: text.trim() ? "pointer" : "default", fontFamily: "inherit" }}>Send</button>
     </div>
   );
 }
@@ -1733,7 +1975,7 @@ function DrillCmtInput({ onSave }) {
   const [text, setText] = useState("");
   if (!open) return <button onClick={() => setOpen(true)} style={{ background: "none", border: "none", fontSize: 11, color: "#6366f1", cursor: "pointer", fontFamily: "inherit", fontWeight: 500, marginTop: 4, padding: 0 }}>{"\ud83d\udcac"} Add feedback</button>;
   return <div style={{ display: "flex", gap: 6, marginTop: 6 }} onClick={e => e.stopPropagation()}>
-    <input value={text} onChange={e => setText(e.target.value)} placeholder="Feedback\u2026" autoFocus style={{ flex: 1, padding: "5px 10px", borderRadius: 6, border: "1.5px solid #e5e7eb", fontSize: 12, fontFamily: "inherit", outline: "none" }} onKeyDown={e => { if (e.key === "Enter" && text.trim()) { onSave(text.trim()); setOpen(false); } }} />
+    <input value={text} onChange={e => setText(e.target.value)} placeholder="Feedback\u2026" autoFocus maxLength={LIMITS.feedback} style={{ flex: 1, padding: "5px 10px", borderRadius: 6, border: `1.5px solid ${S.border}`, fontSize: 12, fontFamily: "inherit", outline: "none" }} onKeyDown={e => { if (e.key === "Enter" && text.trim()) { onSave(text.trim()); setOpen(false); } }} />
     <button onClick={() => { if (text.trim()) { onSave(text.trim()); setOpen(false); } }} style={{ padding: "5px 10px", borderRadius: 6, border: "none", background: "#6366f1", color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Send</button>
     <button onClick={() => setOpen(false)} style={{ background: "none", border: "none", fontSize: 13, color: "#9ca3af", cursor: "pointer" }}>{"\u00d7"}</button>
   </div>;
@@ -1746,11 +1988,11 @@ function InlineCmt({ existingText, onSave }) {
   return (
     <div style={{ display: "flex", gap: 8, alignItems: "center" }} onClick={e => e.stopPropagation()}>
       {open ? <>
-        <input value={text} onChange={e => setText(e.target.value)} placeholder="Feedback\u2026" autoFocus
-          style={{ flex: 1, padding: "7px 12px", borderRadius: 8, border: "1.5px solid #e5e7eb", fontSize: 13, fontFamily: "inherit", outline: "none" }}
+        <input value={text} onChange={e => setText(e.target.value)} placeholder="Feedback\u2026" autoFocus maxLength={LIMITS.feedback}
+          style={{ flex: 1, padding: "7px 12px", borderRadius: 8, border: `1.5px solid ${S.border}`, fontSize: 13, fontFamily: "inherit", outline: "none" }}
           onKeyDown={e => { if (e.key === "Enter" && text.trim()) { onSave(text.trim()); setOpen(false); } }} />
         <button onClick={() => { if (text.trim()) { onSave(text.trim()); setOpen(false); } }} style={{ padding: "7px 14px", borderRadius: 8, border: "none", background: "#6366f1", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Send</button>
-        <button onClick={() => setOpen(false)} style={{ background: "none", border: "none", fontSize: 14, color: "#9ca3af", cursor: "pointer" }}>{"\u00d7"}</button>
+        <button onClick={() => setOpen(false)} style={{ background: "none", border: "none", fontSize: 14, color: S.textFaint, cursor: "pointer" }}>{"\u00d7"}</button>
       </> : (
         <button onClick={() => { setText(existingText || ""); setOpen(true); }} style={{ background: "none", border: "none", fontSize: 12, color: "#6366f1", cursor: "pointer", fontFamily: "inherit", fontWeight: 500 }}>
           {existingText ? `\ud83d\udcac "${existingText}" \u00b7 Edit` : "\ud83d\udcac Feedback"}
