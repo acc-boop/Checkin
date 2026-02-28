@@ -122,6 +122,17 @@ function weekDailySummary(uid, wi, dci, pto) {
   return { count, stuck, days, ptoCount, expected };
 }
 
+// ─── Semantic Colors ─────────────────────────────────────
+const C = {
+  success: "#10b981", successBg: "#d1fae5", successText: "#065f46",
+  danger: "#ef4444", dangerBg: "#fee2e2", dangerText: "#991b1b",
+  warning: "#f59e0b", warningBg: "#fffbeb", warningText: "#92400e",
+  info: "#6366f1", infoBg: "#eef2ff", infoText: "#4338ca",
+  neutral: "#6b7280", neutralBg: "#f3f4f6", neutralBorder: "#e5e7eb",
+  confirm: "#10b981", confirmBg: "#ecfdf5",
+  action: "#111",
+};
+
 // ─── Shared UI ────────────────────────────────────────────
 const AC = { S: "#6366f1", M: "#10b981", P: "#f59e0b", J: "#ec4899", A: "#8b5cf6", E: "#06b6d4", T: "#f43f5e", D: "#14b8a6", R: "#f97316", L: "#84cc16", K: "#a855f7", B: "#3b82f6", C: "#ec4899", N: "#6366f1", O: "#10b981", G: "#ef4444" };
 const Av = ({ i, s = 30 }) => <div style={{ width: s, height: s, borderRadius: "50%", background: AC[i?.[0]?.toUpperCase()] || "#6366f1", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: s * 0.37, fontWeight: 600, flexShrink: 0 }}>{i}</div>;
@@ -153,6 +164,7 @@ export default function App() {
   useEffect(() => { compDataRef.current = compData; }, [compData]);
   const [loaded, setLoaded] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
+  const [dataLoadErr, setDataLoadErr] = useState(null);
   const [saveErr, setSaveErr] = useState(null);
 
   useNow(60000);
@@ -168,10 +180,16 @@ export default function App() {
 
   // ─── Load company data when session changes ───
   useEffect(() => {
-    if (!session?.compId) { setCompData({}); setDataLoaded(false); return; }
-    setDataLoaded(false);
+    if (!session?.compId) { setCompData({}); setDataLoaded(false); setDataLoadErr(null); return; }
+    setDataLoaded(false); setDataLoadErr(null);
     (async () => {
-      try { const r = await window.storage.get(dataKey(session.compId)); if (r?.value) setCompData(JSON.parse(r.value)); else setCompData({}); } catch { setCompData({}); }
+      try {
+        const r = await window.storage.get(dataKey(session.compId));
+        if (r?.value) setCompData(JSON.parse(r.value)); else setCompData({});
+      } catch (err) {
+        setCompData({});
+        setDataLoadErr("Could not load your data. Check your connection and try again.");
+      }
       setDataLoaded(true);
     })();
   }, [session?.compId]);
@@ -230,7 +248,7 @@ export default function App() {
 
   // Resolve current company
   const comp = cfg.companies[session.compId];
-  if (!comp) { logout(); return null; }
+  if (!comp) return <SessionErrorScreen message="Your company could not be found. This may happen if the company was removed." onLogout={logout} />;
 
   const allMembers = Object.values(comp.teams).flatMap(t => t.members);
   const wci = compData.wci || {};
@@ -244,6 +262,22 @@ export default function App() {
   const getTeam = (uid) => Object.entries(comp.teams).find(([, t]) => t.members.some(m => m.id === uid));
 
   if (!dataLoaded) return <DataLoadingScreen />;
+
+  if (dataLoadErr) return (
+    <div style={{ minHeight: "100vh", fontFamily: "'DM Sans',-apple-system,sans-serif", background: "#fafafa", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <style>{GLOBAL_STYLES}</style>
+      <div style={{ textAlign: "center", maxWidth: 400, padding: 20 }}>
+        <div style={{ fontSize: 28, marginBottom: 12, opacity: 0.4 }}>{"\u26a0"}</div>
+        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Connection issue</div>
+        <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 20 }}>{dataLoadErr}</div>
+        <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+          <button onClick={() => { setDataLoaded(false); setDataLoadErr(null); const cid = session.compId; setSession(null); setTimeout(() => setSession({ ...session, compId: cid }), 50); }} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: "#111", color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Retry</button>
+          <button onClick={logout} style={{ padding: "10px 20px", borderRadius: 10, border: "1px solid #e5e7eb", background: "#fff", color: "#6b7280", fontSize: 14, fontWeight: 500, cursor: "pointer", fontFamily: "inherit" }}>Sign out</button>
+        </div>
+        <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 16 }}>Your data is safe — this is just a connection issue.</div>
+      </div>
+    </div>
+  );
 
   if (session.type === "ceo") {
     return <>
@@ -260,7 +294,7 @@ export default function App() {
   }
 
   const member = allMembers.find(m => m.id === session.memberId);
-  if (!member) { logout(); return null; }
+  if (!member) return <SessionErrorScreen message="Your account could not be found. You may have been removed from your team. Please contact your manager." onLogout={logout} />;
 
   return <>
     <MemberDash
@@ -272,9 +306,17 @@ export default function App() {
   </>;
 }
 
+const GLOBAL_STYLES = `
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+@keyframes toastIn { from { opacity: 0; transform: translateX(-50%) translateY(-12px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+input:focus, textarea:focus, select:focus { outline: none; box-shadow: 0 0 0 2px #6366f1 !important; border-color: #6366f1 !important; }
+button:focus-visible { outline: 2px solid #6366f1; outline-offset: 2px; }
+`;
+
 function LoadingScreen() {
   return <div style={{ display: "flex", height: "100vh", alignItems: "center", justifyContent: "center", fontFamily: "'DM Sans',sans-serif", color: "#9ca3af" }}>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&display=swap" rel="stylesheet" />
+    <style>{GLOBAL_STYLES}</style>
     Loading…
   </div>;
 }
@@ -297,7 +339,21 @@ function DataLoadingScreen() {
           <div style={{ width: "70%", height: 12, borderRadius: 4, background: "#f3f4f6" }} />
         </div>)}
         <div style={{ textAlign: "center", marginTop: 16, fontSize: 13, color: "#9ca3af" }}>Loading your data...</div>
-        <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }`}</style>
+      </div>
+    </div>
+  );
+}
+
+function SessionErrorScreen({ message, onLogout }) {
+  return (
+    <div style={{ minHeight: "100vh", fontFamily: "'DM Sans',-apple-system,sans-serif", background: "#fafafa", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&display=swap" rel="stylesheet" />
+      <style>{GLOBAL_STYLES}</style>
+      <div style={{ textAlign: "center", maxWidth: 400, padding: 20 }}>
+        <div style={{ fontSize: 28, marginBottom: 12 }}>{"\ud83d\udd12"}</div>
+        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Session expired</div>
+        <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 20, lineHeight: 1.5 }}>{message}</div>
+        <button onClick={onLogout} style={{ padding: "12px 24px", borderRadius: 10, border: "none", background: "#111", color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Sign in again</button>
       </div>
     </div>
   );
@@ -307,12 +363,15 @@ function SaveToast({ show }) {
   if (!show) return null;
   return <div style={{ position: "fixed", top: 20, left: "50%", transform: "translateX(-50%)", background: "#065f46", color: "#fff", padding: "12px 24px", borderRadius: 12, fontSize: 15, fontFamily: "'DM Sans',sans-serif", fontWeight: 700, zIndex: 9999, boxShadow: "0 8px 24px rgba(0,0,0,.2)", display: "flex", alignItems: "center", gap: 8, animation: "toastIn 0.3s ease-out" }}>
     <span style={{ fontSize: 20 }}>{"\u2713"}</span> Saved successfully
-    <style>{`@keyframes toastIn { from { opacity: 0; transform: translateX(-50%) translateY(-12px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }`}</style>
   </div>;
 }
 
 function ErrorToast({ msg, onClose }) {
-  return <div style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", background: "#991b1b", color: "#fff", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontFamily: "'DM Sans',sans-serif", fontWeight: 500, zIndex: 9999, boxShadow: "0 4px 16px rgba(0,0,0,.15)", display: "flex", gap: 12, alignItems: "center" }}>
+  useEffect(() => {
+    const timer = setTimeout(onClose, 8000);
+    return () => clearTimeout(timer);
+  }, [msg, onClose]);
+  return <div style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", background: "#991b1b", color: "#fff", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontFamily: "'DM Sans',sans-serif", fontWeight: 500, zIndex: 9999, boxShadow: "0 4px 16px rgba(0,0,0,.15)", display: "flex", gap: 12, alignItems: "center", maxWidth: "90vw", animation: "toastIn 0.3s ease-out" }}>
     {msg}<button onClick={onClose} style={{ background: "none", border: "none", color: "#fca5a5", cursor: "pointer", fontSize: 16, fontWeight: 700 }}>{"\u00d7"}</button>
   </div>;
 }
@@ -489,6 +548,7 @@ function MemberDash({ uid, m, getTeam, wci, dci, cmt, kpiP, stuckRes, seen, pto,
   return (
     <div style={{ minHeight: "100vh", fontFamily: "'DM Sans',-apple-system,sans-serif", background: "#fafafa", display: "flex", flexDirection: "column" }}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&display=swap" rel="stylesheet" />
+      <style>{GLOBAL_STYLES}</style>
       <div style={{ background: "#fff", borderBottom: "1px solid #e5e7eb", padding: "10px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={{ fontSize: 18 }}>{"\u25ce"}</span><span style={{ fontSize: 15, fontWeight: 700, letterSpacing: -0.3 }}>Checkin</span></div>
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
@@ -553,6 +613,12 @@ function MemberDash({ uid, m, getTeam, wci, dci, cmt, kpiP, stuckRes, seen, pto,
   );
 }
 
+// ─── Daily prompts rotation ──────────────────────────────
+const WORKED_HINTS = ["What was your biggest win?", "Did anything surprise you?", "What moved the needle most?", "What are you proudest of?", "What would you repeat tomorrow?"];
+const DIDNT_HINTS = ["What would you do differently?", "Where did you lose time?", "What almost worked but didn't?", "What frustrated you most?"];
+const PLAN_HINTS = ["What's your #1 priority?", "What would make tomorrow a great day?", "What's the one thing you must finish?", "Where will you focus first?"];
+function getDailyHint(hints, dateStr) { const idx = dateStr.split("-").reduce((a, b) => a + parseInt(b), 0) % hints.length; return hints[idx]; }
+
 // ─── Daily (Member) ───────────────────────────────────────
 function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
   const selDays = useMemo(() => memberSelectableDays(), []);
@@ -563,6 +629,7 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
   const [plan, setPlan] = useState("");
   const [stuck, setStuck] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [stuckErr, setStuckErr] = useState(false);
   const didntRef = useRef(null);
 
@@ -607,17 +674,20 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
   const isFutureDate = selDate > ds(getToday());
 
   const submit = async () => {
-    if (!worked.trim() || isFutureDate) return;
+    if (!worked.trim() || isFutureDate || submitting) return;
     if (stuck && !didnt.trim()) { setStuckErr(true); didntRef.current?.focus(); return; }
     if (existing && !window.confirm("You already submitted for this day. Overwrite your previous entry?")) return;
-    const key = `${uid}:${selDate}`;
-    const isEdit = !!existing;
-    const entry = { worked, didnt, plan, stuck, at: new Date().toISOString() };
-    if (isEdit) { entry.edited = true; entry.originalAt = existing.originalAt || existing.at; }
-    else { entry.originalAt = entry.at; }
-    await save({ dci: { ...dci, [key]: entry } });
-    try { localStorage.removeItem(draftKey); } catch {}
-    setSaved(true); setTimeout(() => setSaved(false), 4000);
+    setSubmitting(true);
+    try {
+      const key = `${uid}:${selDate}`;
+      const isEdit = !!existing;
+      const entry = { worked, didnt, plan, stuck, at: new Date().toISOString() };
+      if (isEdit) { entry.edited = true; entry.originalAt = existing.originalAt || existing.at; }
+      else { entry.originalAt = entry.at; }
+      await save({ dci: { ...dci, [key]: entry } });
+      try { localStorage.removeItem(draftKey); } catch {}
+      setSaved(true); setTimeout(() => setSaved(false), 4000);
+    } finally { setSubmitting(false); }
   };
 
   const dailyCmt = cmt[`d:${uid}:${selDate}`];
@@ -626,18 +696,19 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
   const today = getToday();
   const canTogglePto = selDate === ds(today);
 
+  const [showAllRecent, setShowAllRecent] = useState(false);
   const recentDays = useMemo(() => {
-    const days = []; const all = getWeekdaysBack(10, new Date(getToday().getTime() - 864e5));
+    const days = []; const all = getWeekdaysBack(20, new Date(getToday().getTime() - 864e5));
     for (const d of all) {
       if (d === selDate) continue;
       const e = dci[`${uid}:${d}`];
       const isPtoDay = !!pto[`${uid}:${d}`];
       if (e) days.push({ date: d, ...e, cmt: cmt[`d:${uid}:${d}`], isPto: isPtoDay });
       else days.push({ date: d, missed: true, isPto: isPtoDay });
-      if (days.length >= 5) break;
     }
     return days;
   }, [uid, dci, cmt, pto, selDate]);
+  const visibleRecent = showAllRecent ? recentDays : recentDays.slice(0, 5);
 
   return (
     <>
@@ -645,7 +716,7 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
       <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "12px 16px", marginBottom: 16 }}>
         <div style={{ fontSize: 11, color: "#9ca3af", fontWeight: 500, textTransform: "uppercase", letterSpacing: 0.8 }}>{selDate === ds(getToday()) ? "Today" : dayLabel(selDate)}</div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
-          <span style={{ fontSize: 18, fontWeight: 700, color: isPto ? "#6366f1" : existing ? "#10b981" : "#f59e0b" }}>{isPto ? "\u2708 PTO" : existing ? "\u2713 Submitted" : "Pending"}</span>
+          <span style={{ fontSize: 18, fontWeight: 700, color: isPto ? C.info : existing ? C.success : C.warning }}>{isPto ? "\u2708 PTO" : existing ? "\u2713 Submitted" : "Pending"}</span>
           {existing && isLate(selDate, existing.at, tz) && <LateBadge />}
         </div>
         {existing?.at && <div style={{ fontSize: 11, color: isLate(selDate, existing.at, tz) ? "#b45309" : "#9ca3af", marginTop: 2 }}>{fmtSubmission(selDate, existing.at, tz)}</div>}
@@ -654,16 +725,18 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 4, marginBottom: 16 }}>
         {selDays.map(d => {
           const sel = d === selDate; const has = !!dci[`${uid}:${d}`]; const isPtoDay = !!pto[`${uid}:${d}`]; const isFuture = d > ds(getToday());
+          const canPto = d === ds(getToday());
           const statusColor = has ? "#10b981" : isPtoDay ? "#6366f1" : null;
           return <button key={d} onClick={() => setSelDate(d)} style={{
-            padding: "8px 2px", borderRadius: 10, border: "2px solid", borderColor: sel ? "#111" : "#e5e7eb",
-            background: sel ? "#111" : "#fff", color: sel ? "#fff" : "#374151", fontSize: 13, fontWeight: sel ? 700 : 500,
+            padding: "8px 2px", borderRadius: 10, border: "2px solid", borderColor: sel ? "#111" : isPtoDay ? "#c7d2fe" : "#e5e7eb",
+            background: sel ? "#111" : isPtoDay ? "#eef2ff" : "#fff", color: sel ? "#fff" : "#374151", fontSize: 13, fontWeight: sel ? 700 : 500,
             cursor: "pointer", fontFamily: "inherit", textAlign: "center", position: "relative", opacity: isFuture ? 0.4 : 1,
             minWidth: 0,
           }}>
             <div style={{ fontSize: 12, fontWeight: 600 }}>{dayLabel(d).split(" ")[0]}</div>
-            <div style={{ fontSize: 13, fontWeight: 700, marginTop: 1 }}>{parseInt(d.split("-")[2])}</div>
-            {statusColor && <div style={{ width: 6, height: 6, borderRadius: "50%", background: sel ? "#fff" : statusColor, position: "absolute", top: 4, right: 4 }} />}
+            <div style={{ fontSize: 13, fontWeight: 700, marginTop: 1 }}>{isPtoDay ? "\u2708" : parseInt(d.split("-")[2])}</div>
+            {statusColor && !isPtoDay && <div style={{ width: 6, height: 6, borderRadius: "50%", background: sel ? "#fff" : statusColor, position: "absolute", top: 4, right: 4 }} />}
+            {canPto && sel && !has && <div onClick={(e) => { e.stopPropagation(); const k = `${uid}:${d}`; const np = { ...pto }; if (np[k]) delete np[k]; else np[k] = true; save({ pto: np }); }} style={{ position: "absolute", bottom: -2, right: -2, width: 18, height: 18, borderRadius: "50%", background: isPtoDay ? "#6366f1" : "#f3f4f6", border: "1.5px solid #fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, cursor: "pointer", color: isPtoDay ? "#fff" : "#9ca3af" }}>{"\u2708"}</div>}
           </button>;
         })}
       </div>
@@ -692,21 +765,20 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
           </div>
         ) : (<>
           <div style={{ marginBottom: 16 }}>
-            <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 5, color: "#10b981" }}>1. What worked today? <span style={{ fontWeight: 400, color: "#6b7280" }}>Include numbers.</span></label>
+            <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 5, color: "#10b981" }}>1. What worked today? <span style={{ fontWeight: 400, color: "#9ca3af", fontSize: 12 }}>{getDailyHint(WORKED_HINTS, selDate)}</span></label>
             <textarea value={worked} onChange={e => setWorked(e.target.value)} rows={3} placeholder="e.g. Closed 3 deals worth $12K, finished onboarding deck, 15 cold calls — 4 booked"
-              style={{ width: "100%", padding: "11px 14px", borderRadius: 10, border: "1.5px solid #e5e7eb", fontSize: 14, fontFamily: "inherit", outline: "none", resize: "vertical", boxSizing: "border-box", lineHeight: 1.5 }}
-              onFocus={e => e.target.style.borderColor = "#10b981"} onBlur={e => e.target.style.borderColor = "#e5e7eb"} />
+              style={{ width: "100%", padding: "11px 14px", borderRadius: 10, border: "1.5px solid #e5e7eb", fontSize: 14, fontFamily: "inherit", outline: "none", resize: "vertical", boxSizing: "border-box", lineHeight: 1.5 }} />
           </div>
           <div style={{ marginBottom: 16 }}>
             <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 5, color: "#ef4444" }}>
-              2. What didn't work, and what are you changing? {stuck && <span style={{ color: "#ef4444" }}>*</span>}
+              2. What didn't work? {stuck && <span style={{ color: "#ef4444" }}>*</span>} <span style={{ fontWeight: 400, color: "#9ca3af", fontSize: 12 }}>{getDailyHint(DIDNT_HINTS, selDate)}</span>
             </label>
             <textarea ref={didntRef} value={didnt} onChange={e => { setDidnt(e.target.value); if (e.target.value.trim()) setStuckErr(false); }} rows={2} placeholder="e.g. Demo fell through — switching to async video pitches next week"
               style={{ width: "100%", padding: "11px 14px", borderRadius: 10, border: `1.5px solid ${(stuckErr || (stuck && !didnt.trim())) ? "#ef4444" : "#e5e7eb"}`, fontSize: 14, fontFamily: "inherit", outline: "none", resize: "vertical", boxSizing: "border-box", lineHeight: 1.5 }} />
             {(stuckErr || (stuck && !didnt.trim())) && <div style={{ fontSize: 12, color: "#ef4444", marginTop: 4, fontWeight: 500 }}>{"\u26a0"} Required when stuck — describe what isn't working and what you're changing.</div>}
           </div>
           <div style={{ marginBottom: 16 }}>
-            <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 5, color: "#6366f1" }}>3. Plan for tomorrow — stuck on anything?</label>
+            <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 5, color: "#6366f1" }}>3. Plan for tomorrow <span style={{ fontWeight: 400, color: "#9ca3af", fontSize: 12 }}>{getDailyHint(PLAN_HINTS, selDate)}</span></label>
             <textarea value={plan} onChange={e => setPlan(e.target.value)} rows={2} placeholder="e.g. Follow up with 5 warm leads, prep Q2 forecast, need help with pricing approval"
               style={{ width: "100%", padding: "11px 14px", borderRadius: 10, border: "1.5px solid #e5e7eb", fontSize: 14, fontFamily: "inherit", outline: "none", resize: "vertical", boxSizing: "border-box", lineHeight: 1.5 }} />
           </div>
@@ -719,8 +791,8 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
           </button>
           {isFutureDate && <div style={{ textAlign: "center", padding: "10px", fontSize: 13, color: "#9ca3af", fontStyle: "italic" }}>Can't submit for a future date.</div>}
           <div style={{ position: "sticky", bottom: 0, background: "#fff", padding: "12px 0 4px", marginTop: 4, zIndex: 10 }}>
-            <button onClick={submit} disabled={!worked.trim() || isFutureDate} style={{ width: "100%", padding: "15px", borderRadius: 12, border: "none", background: !worked.trim() || isFutureDate ? "#e5e7eb" : saved ? "#10b981" : "#111", color: !worked.trim() || isFutureDate ? "#9ca3af" : "#fff", fontSize: 16, fontWeight: 700, cursor: worked.trim() && !isFutureDate ? "pointer" : "default", fontFamily: "inherit", transition: "background 0.2s" }}>
-              {saved ? "\u2713 Saved!" : existing ? "Update" : selDate !== ds(getToday()) ? `Submit for ${dayLabel(selDate)}` : "Submit daily update"}
+            <button onClick={submit} disabled={!worked.trim() || isFutureDate || submitting} style={{ width: "100%", padding: "15px", borderRadius: 12, border: "none", background: !worked.trim() || isFutureDate || submitting ? "#e5e7eb" : saved ? "#10b981" : "#111", color: !worked.trim() || isFutureDate || submitting ? "#9ca3af" : "#fff", fontSize: 16, fontWeight: 700, cursor: worked.trim() && !isFutureDate && !submitting ? "pointer" : "default", fontFamily: "inherit", transition: "background 0.2s" }}>
+              {submitting ? "Saving..." : saved ? "\u2713 Saved!" : existing ? "Update" : selDate !== ds(getToday()) ? `Submit for ${dayLabel(selDate)}` : "Submit daily update"}
             </button>
             {!isFutureDate && worked.trim() && <div style={{ textAlign: "center", fontSize: 10, color: "#9ca3af", marginTop: 4 }}>{navigator.platform?.includes("Mac") ? "\u2318" : "Ctrl"}+Enter</div>}
           </div>
@@ -742,8 +814,11 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
       </div>
 
       {recentDays.length > 0 && <div>
-        <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 8 }}>Recent</div>
-        {recentDays.map(d => (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>Recent</span>
+          <span style={{ fontSize: 11, color: "#9ca3af" }}>{recentDays.length} days</span>
+        </div>
+        {visibleRecent.map(d => (
           <div key={d.date} style={{ background: d.missed ? "#fafafa" : "#fff", borderRadius: 12, border: "1px solid", borderColor: d.missed && !d.isPto ? "#fecaca" : "#e5e7eb", padding: "14px 16px", marginBottom: 8, opacity: d.missed ? 0.7 : 1 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: d.missed ? 0 : 6 }}>
               <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -764,6 +839,11 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
             </>}
           </div>
         ))}
+        {recentDays.length > 5 && (
+          <button onClick={() => setShowAllRecent(!showAllRecent)} style={{ width: "100%", padding: "10px", borderRadius: 10, border: "1px solid #e5e7eb", background: "#fff", color: "#6366f1", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", marginTop: 4 }}>
+            {showAllRecent ? "Show less" : `Show ${recentDays.length - 5} more days`}
+          </button>
+        )}
       </div>}
     </>
   );
@@ -777,6 +857,8 @@ function WeeklyMember({ uid, m, wci, dci, cmt, kpiP, pto, save, tz }) {
   const [kpiStates, setKpiStates] = useState(m.kpis.map(() => ({ status: null, actual: "" })));
   const [challenge, setChallenge] = useState("");
   const [saved, setSaved] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [contextExpanded, setContextExpanded] = useState(false);
 
   const wk = WEEKS[wIdx], key = `${uid}:${wk?.id}`, existing = wci[key];
   const locked = isLocked(wIdx), overdue = isOverdue(wIdx) && !existing, dl = timeLeft(wIdx);
@@ -799,9 +881,12 @@ function WeeklyMember({ uid, m, wci, dci, cmt, kpiP, pto, save, tz }) {
   }, [wIdx, existing]);
 
   const submit = async () => {
-    if (!allKpiSet || locked) return;
-    await save({ wci: { ...wci, [key]: { kpis: kpiStates, challenge, at: new Date().toISOString() } } });
-    setSaved(true); setTimeout(() => setSaved(false), 4000);
+    if (!allKpiSet || locked || submitting) return;
+    setSubmitting(true);
+    try {
+      await save({ wci: { ...wci, [key]: { kpis: kpiStates, challenge, at: new Date().toISOString() } } });
+      setSaved(true); setTimeout(() => setSaved(false), 4000);
+    } finally { setSubmitting(false); }
   };
 
   const vs = Math.max(0, CW - 11), vw = WEEKS.slice(vs, CW + 1);
@@ -822,7 +907,7 @@ function WeeklyMember({ uid, m, wci, dci, cmt, kpiP, pto, save, tz }) {
           {streak > 0 && <div style={{ background: streak >= 6 ? "#ecfdf5" : "#f3f4f6", padding: "6px 14px", borderRadius: 20, fontSize: 13, fontWeight: 700, color: streak >= 6 ? "#065f46" : "#6b7280" }}>{streak >= 6 ? "\ud83d\udd25 " : ""}{streak}w</div>}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: `repeat(${vw.length},1fr)`, gap: 4 }}>
-          {vw.map((w, vi) => { const ri = vs + vi, s = hist[ri], cur = ri === CW; return <div key={w.id} onClick={() => !isLocked(ri) && setWIdx(ri)} title={`${w.range}${s ? ` — ${s === "green" ? "Hit" : "Missed"}` : cur ? " — Current" : ""}`} style={{ aspectRatio: "1", borderRadius: 8, cursor: isLocked(ri) ? "default" : "pointer", background: s === "green" ? "#10b981" : s === "red" ? "#ef4444" : s === "auto-red" ? "#fca5a5" : cur ? "#f3f4f6" : "#f9fafb", border: ri === wIdx ? "2.5px solid #111" : "1.5px solid transparent", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", opacity: s === "auto-red" ? 0.5 : 1 }}>{s === "green" && <span style={{ color: "#fff", fontSize: 14, fontWeight: 800 }}>{"\u2713"}</span>}{(s === "red" || s === "auto-red") && <span style={{ color: "#fff", fontSize: 14, fontWeight: 800 }}>{"\u2717"}</span>}{!s && cur && <span style={{ fontSize: 9, color: "#9ca3af", fontWeight: 600 }}>NOW</span>}</div>; })}
+          {vw.map((w, vi) => { const ri = vs + vi, s = hist[ri], cur = ri === CW, isFutureWk = ri > CW, isPast = ri < CW && !s; return <div key={w.id} onClick={() => !isLocked(ri) && setWIdx(ri)} title={`${w.range}${s ? ` — ${s === "green" ? "Hit" : "Missed"}` : isFutureWk ? " — Upcoming" : cur ? " — Current" : " — Not submitted"}`} style={{ aspectRatio: "1", borderRadius: 8, cursor: isLocked(ri) ? "default" : "pointer", background: s === "green" ? "#10b981" : s === "red" ? "#ef4444" : s === "auto-red" ? "#fca5a5" : cur ? "#f3f4f6" : isFutureWk ? "#fafafa" : "#f9fafb", border: ri === wIdx ? "2.5px solid #111" : isPast ? "1.5px dashed #d1d5db" : "1.5px solid transparent", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", opacity: s === "auto-red" ? 0.5 : isFutureWk ? 0.4 : 1 }}>{s === "green" && <span style={{ color: "#fff", fontSize: 14, fontWeight: 800 }}>{"\u2713"}</span>}{(s === "red" || s === "auto-red") && <span style={{ color: "#fff", fontSize: 14, fontWeight: 800 }}>{"\u2717"}</span>}{!s && cur && <span style={{ fontSize: 9, color: "#9ca3af", fontWeight: 600 }}>NOW</span>}{!s && isPast && <span style={{ fontSize: 10, color: "#d1d5db" }}>{"\u2014"}</span>}</div>; })}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: `repeat(${vw.length},1fr)`, gap: 4, marginTop: 3 }}>
           {vw.map((w, vi) => <div key={w.id} title={w.range} style={{ textAlign: "center", fontSize: 9, color: vs + vi === wIdx ? "#111" : "#9ca3af", fontWeight: vs + vi === wIdx ? 700 : 400, cursor: "default" }}>{w.short}</div>)}
@@ -835,9 +920,13 @@ function WeeklyMember({ uid, m, wci, dci, cmt, kpiP, pto, save, tz }) {
       </div>
 
       {dailyContext && (
-        <div style={{ background: "#f8fafc", borderRadius: 12, border: "1px solid #e2e8f0", padding: "12px 16px", marginBottom: 16, maxHeight: 120, overflow: "auto" }}>
-          <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 600, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>Your daily numbers this week</div>
-          <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.5, whiteSpace: "pre-line" }}>{dailyContext}</div>
+        <div style={{ background: "#f8fafc", borderRadius: 12, border: "1px solid #e2e8f0", padding: "12px 16px", marginBottom: 16, position: "relative" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+            <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>Your daily numbers this week</div>
+            <button onClick={() => setContextExpanded(!contextExpanded)} style={{ background: "none", border: "none", fontSize: 11, color: "#6366f1", cursor: "pointer", fontFamily: "inherit", fontWeight: 600, padding: 0 }}>{contextExpanded ? "Collapse" : "Expand"}</button>
+          </div>
+          <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.5, whiteSpace: "pre-line", maxHeight: contextExpanded ? "none" : 80, overflow: "hidden" }}>{dailyContext}</div>
+          {!contextExpanded && dailyContext.split("\n").length > 3 && <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 32, background: "linear-gradient(transparent, #f8fafc)", borderRadius: "0 0 12px 12px", pointerEvents: "none" }} />}
         </div>
       )}
 
@@ -875,8 +964,8 @@ function WeeklyMember({ uid, m, wci, dci, cmt, kpiP, pto, save, tz }) {
               <label style={{ fontSize: 13, fontWeight: 500, display: "block", marginBottom: 5 }}>Challenges? <span style={{ fontWeight: 400, color: "#9ca3af" }}>(optional)</span></label>
               <textarea value={challenge} onChange={e => setChallenge(e.target.value)} disabled={locked} placeholder="e.g. Pipeline slowed down — need marketing support on lead gen" rows={2} style={{ width: "100%", padding: "11px 14px", borderRadius: 10, border: "1.5px solid #e5e7eb", fontSize: 14, fontFamily: "inherit", outline: "none", resize: "vertical", boxSizing: "border-box" }} />
             </div>
-            <button onClick={submit} disabled={!allKpiSet || locked} style={{ width: "100%", padding: "15px", borderRadius: 12, border: "none", background: !allKpiSet || locked ? "#e5e7eb" : saved ? "#10b981" : "#111", color: !allKpiSet || locked ? "#9ca3af" : "#fff", fontSize: 16, fontWeight: 700, cursor: allKpiSet && !locked ? "pointer" : "default", fontFamily: "inherit" }}>
-              {saved ? "\u2713 Saved!" : existing ? "Update" : "Submit"}
+            <button onClick={submit} disabled={!allKpiSet || locked || submitting} style={{ width: "100%", padding: "15px", borderRadius: 12, border: "none", background: !allKpiSet || locked || submitting ? "#e5e7eb" : saved ? "#10b981" : "#111", color: !allKpiSet || locked || submitting ? "#9ca3af" : "#fff", fontSize: 16, fontWeight: 700, cursor: allKpiSet && !locked && !submitting ? "pointer" : "default", fontFamily: "inherit" }}>
+              {submitting ? "Saving..." : saved ? "\u2713 Saved!" : existing ? "Update" : "Submit"}
             </button>
           </>
         )}
