@@ -11,7 +11,12 @@ function genWeeks() {
     const mon = new Date(s); mon.setDate(mon.getDate() + i * 7);
     const fri = new Date(mon); fri.setDate(fri.getDate() + 4); fri.setHours(23, 59, 59);
     const gr = new Date(fri); gr.setHours(gr.getHours() + GRACE_H);
-    w.push({ id: `w${String(i + 1).padStart(2, "0")}`, label: mon.toLocaleDateString("en-US", { month: "short", day: "numeric" }), short: `W${i + 1}`, mon, fri, gr });
+    const monLbl = mon.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    const sameMonth = mon.getMonth() === fri.getMonth();
+    const range = sameMonth
+      ? `${monLbl} – ${fri.getDate()}`
+      : `${monLbl} – ${fri.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+    w.push({ id: `w${String(i + 1).padStart(2, "0")}`, label: monLbl, range, short: `${mon.getMonth() + 1}/${mon.getDate()}`, mon, fri, gr });
   }
   return w;
 }
@@ -688,7 +693,7 @@ function WeeklyMember({ uid, m, wci, dci, cmt, kpiP, pto, save, tz }) {
 
       <div style={{ background: "#fff", borderRadius: 16, border: "1px solid #e5e7eb", padding: "22px 20px 26px", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 2 }}>
-          <span style={{ fontSize: 16, fontWeight: 700 }}>Week of {wk.label}</span>
+          <span style={{ fontSize: 16, fontWeight: 700 }}>{wk.range}</span>
           {existing && <span style={{ fontSize: 11, color: "#10b981", fontWeight: 500 }}>{"\u2713"} {fmtTime(existing.at, tz)}</span>}
         </div>
         <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 18 }}>{locked && !existing ? "Auto-red." : "Mark each KPI."}</div>
@@ -1013,7 +1018,7 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
               {view === "weekly" && (
                 <>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                    <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0, letterSpacing: -0.3 }}>Week of {wk.label}</h1>
+                    <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0, letterSpacing: -0.3 }}>{wk.range}</h1>
                     <div style={{ display: "flex", gap: 6 }}>
                       <button onClick={() => setWIdx(Math.max(0, wIdx - 1))} disabled={wIdx === 0} style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", cursor: wIdx > 0 ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, color: "#6b7280" }}>{"\u2190"}</button>
                       <button onClick={() => setWIdx(Math.min(CW, wIdx + 1))} disabled={wIdx === CW} style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", cursor: wIdx < CW ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, color: "#6b7280" }}>{"\u2192"}</button>
@@ -1055,7 +1060,7 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
                   <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: 20, overflow: "auto" }}>
                     <div style={{ display: "grid", gridTemplateColumns: `140px repeat(${vw.length},1fr)`, gap: 3, alignItems: "center" }}>
                       <div />
-                      {vw.map((w, i) => <div key={w.id} style={{ fontSize: 10, color: vs + i === wIdx ? "#111" : "#9ca3af", fontWeight: vs + i === wIdx ? 700 : 400, textAlign: "center" }}>{w.label.split(" ")[1]}</div>)}
+                      {vw.map((w, i) => <div key={w.id} style={{ fontSize: 10, color: vs + i === wIdx ? "#111" : "#9ca3af", fontWeight: vs + i === wIdx ? 700 : 400, textAlign: "center" }}>{w.label}</div>)}
                       {filteredMembers.map(m => (
                         <React.Fragment key={m.id}>
                           <div style={{ fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }} onClick={() => setDrillPerson(m.id)}><Av i={m.av} s={20} />{m.name.split(" ")[0]}</div>
