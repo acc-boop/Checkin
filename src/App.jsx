@@ -46,29 +46,36 @@ function weekdaysInWeek(weekIdx) {
   return days;
 }
 
+// ─── Timezone ────────────────────────────────────────────
+const BROWSER_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
+function getTz(member, comp) { return member?.tz || comp?.tz || BROWSER_TZ; }
+function fmtTime(iso, tz) {
+  if (!iso) return "";
+  try { return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: tz || BROWSER_TZ, timeZoneName: "short" }); }
+  catch { return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }); }
+}
+function isLate(dateStr, isoAt, tz) {
+  if (!dateStr || !isoAt) return false;
+  try { return new Date(isoAt).toLocaleDateString("en-CA", { timeZone: tz || BROWSER_TZ }) > dateStr; }
+  catch { return false; }
+}
+function fmtSubmission(dateStr, isoAt, tz) {
+  if (!isoAt) return "";
+  const time = fmtTime(isoAt, tz);
+  if (!isLate(dateStr, isoAt, tz)) return time;
+  try { const d = new Date(isoAt).toLocaleDateString("en-US", { weekday: "short", timeZone: tz || BROWSER_TZ }); return `${d} ${time}`; }
+  catch { return time; }
+}
+function getTzList() { try { return Intl.supportedValuesOf("timeZone"); } catch { return [BROWSER_TZ]; } }
+function tzLabel(tz) {
+  try { const p = new Intl.DateTimeFormat("en-US", { timeZone: tz, timeZoneName: "short" }).formatToParts(new Date()); const s = p.find(x => x.type === "timeZoneName")?.value || ""; return `(${s}) ${tz.replace(/_/g, " ")}`; }
+  catch { return tz; }
+}
+
 // ─── Utility ──────────────────────────────────────────────
 function genId() { return Math.random().toString(36).slice(2, 8); }
 
 // ─── Streak / Status helpers ──────────────────────────────
-function getDailyStreak(uid, dci, pto) {
-  pto = pto || {};
-  let s = 0; const d = new Date(TODAY);
-  const todaySubmitted = !!dci[`${uid}:${ds(d)}`];
-  const todayPto = !!pto[`${uid}:${ds(d)}`];
-  if (todaySubmitted || todayPto) { if (todaySubmitted) s++; }
-  d.setDate(d.getDate() - 1);
-  while (true) { if (isWeekend(d)) { d.setDate(d.getDate() - 1); continue; } if (pto[`${uid}:${ds(d)}`]) { d.setDate(d.getDate() - 1); continue; } if (dci[`${uid}:${ds(d)}`]) { s++; d.setDate(d.getDate() - 1); } else break; }
-  if (!todaySubmitted && !todayPto && s === 0 && !isWeekend(TODAY)) {
-    const y = new Date(TODAY); y.setDate(y.getDate() - 1);
-    while (isWeekend(y) || pto[`${uid}:${ds(y)}`]) y.setDate(y.getDate() - 1);
-    if (dci[`${uid}:${ds(y)}`]) {
-      let gs = 1; const g = new Date(y); g.setDate(g.getDate() - 1);
-      while (true) { if (isWeekend(g)) { g.setDate(g.getDate() - 1); continue; } if (pto[`${uid}:${ds(g)}`]) { g.setDate(g.getDate() - 1); continue; } if (dci[`${uid}:${ds(g)}`]) { gs++; g.setDate(g.getDate() - 1); } else break; }
-      return gs;
-    }
-  }
-  return s;
-}
 function getWkStreak(uid, wci) { let s = 0; for (let i = CW; i >= 0; i--) { if (wci[`${uid}:${WEEKS[i].id}`]) s++; else break; } return s; }
 function resolveWeek(uid, wi, wci) {
   const c = wci[`${uid}:${WEEKS[wi]?.id}`];
@@ -93,6 +100,7 @@ const Spark = ({ data, w = 60, h = 20 }) => {
 };
 const StuckBadge = () => <span style={{ background: "#fef2f2", color: "#dc2626", fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 4 }}>{"\ud83d\udea8"} STUCK</span>;
 const EditedBadge = () => <span style={{ fontSize: 10, color: "#9ca3af", fontStyle: "italic" }}>edited</span>;
+const LateBadge = () => <span style={{ background: "#fffbeb", color: "#b45309", fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 4 }}>LATE</span>;
 const SideLabel = ({ children }) => <div style={{ fontSize: 10, color: "#9ca3af", padding: "14px 20px 6px", textTransform: "uppercase", letterSpacing: 1, fontWeight: 500 }}>{children}</div>;
 const SideBtn = ({ active, onClick, children }) => <button onClick={onClick} style={{ width: "100%", padding: "7px 20px", border: "none", cursor: "pointer", fontFamily: "'DM Sans',sans-serif", background: active ? "#f3f4f6" : "transparent", color: active ? "#111" : "#6b7280", fontSize: 13, fontWeight: active ? 500 : 400, textAlign: "left" }}>{children}</button>;
 
@@ -363,6 +371,9 @@ function MemberDash({ uid, m, getTeam, wci, dci, cmt, kpiP, stuckRes, seen, pto,
   const [showPwChange, setShowPwChange] = useState(false);
   const [newPw, setNewPw] = useState("");
   const [pwSaved, setPwSaved] = useState(false);
+  const [showTzPicker, setShowTzPicker] = useState(false);
+
+  const memberTz = getTz(m, cfg.companies[compId]);
 
   const changePw = async () => {
     if (!newPw.trim()) return;
@@ -373,6 +384,15 @@ function MemberDash({ uid, m, getTeam, wci, dci, cmt, kpiP, stuckRes, seen, pto,
     }
     await saveCfg({ ...cfg, companies: { ...cfg.companies, [compId]: { ...comp, teams: newTeams } } });
     setNewPw(""); setPwSaved(true); setTimeout(() => { setPwSaved(false); setShowPwChange(false); }, 1500);
+  };
+
+  const changeTz = async (newTz) => {
+    const comp = cfg.companies[compId];
+    const newTeams = {};
+    for (const [tid, team] of Object.entries(comp.teams)) {
+      newTeams[tid] = { ...team, members: team.members.map(mem => mem.id === uid ? { ...mem, tz: newTz } : mem) };
+    }
+    await saveCfg({ ...cfg, companies: { ...cfg.companies, [compId]: { ...comp, teams: newTeams } } });
   };
 
   const unreadDaily = useMemo(() => Object.keys(cmt).filter(k => k.startsWith(`d:${uid}:`) && !seen[`${uid}:${k}`]).length, [cmt, seen, uid]);
@@ -397,7 +417,8 @@ function MemberDash({ uid, m, getTeam, wci, dci, cmt, kpiP, stuckRes, seen, pto,
       <div style={{ background: "#fff", borderBottom: "1px solid #e5e7eb", padding: "10px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={{ fontSize: 18 }}>{"\u25ce"}</span><span style={{ fontSize: 15, fontWeight: 700, letterSpacing: -0.3 }}>Checkin</span></div>
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          <button onClick={() => setShowPwChange(!showPwChange)} style={{ background: "none", border: "none", fontSize: 12, color: "#9ca3af", cursor: "pointer", fontFamily: "inherit" }}>{"\u2699"} Password</button>
+          <button onClick={() => { setShowTzPicker(!showTzPicker); setShowPwChange(false); }} style={{ background: "none", border: "none", fontSize: 12, color: "#9ca3af", cursor: "pointer", fontFamily: "inherit" }}>{"\ud83c\udf10"} Timezone</button>
+          <button onClick={() => { setShowPwChange(!showPwChange); setShowTzPicker(false); }} style={{ background: "none", border: "none", fontSize: 12, color: "#9ca3af", cursor: "pointer", fontFamily: "inherit" }}>{"\u2699"} Password</button>
           <button onClick={logout} style={{ background: "none", border: "none", fontSize: 12, color: "#9ca3af", cursor: "pointer", fontFamily: "inherit" }}>Sign out</button>
         </div>
       </div>
@@ -411,6 +432,16 @@ function MemberDash({ uid, m, getTeam, wci, dci, cmt, kpiP, stuckRes, seen, pto,
             {pwSaved ? "\u2713 Saved" : "Update"}
           </button>
           <button onClick={() => { setShowPwChange(false); setNewPw(""); }} style={{ background: "none", border: "none", fontSize: 14, color: "#9ca3af", cursor: "pointer" }}>{"\u00d7"}</button>
+        </div>
+      )}
+      {showTzPicker && (
+        <div style={{ background: "#fff", borderBottom: "1px solid #e5e7eb", padding: "12px 20px", display: "flex", gap: 8, alignItems: "center" }}>
+          <span style={{ fontSize: 12, color: "#6b7280", whiteSpace: "nowrap" }}>{"\ud83c\udf10"} Timezone:</span>
+          <select value={memberTz} onChange={e => changeTz(e.target.value)}
+            style={{ flex: 1, maxWidth: 320, padding: "7px 12px", borderRadius: 8, border: "1.5px solid #e5e7eb", fontSize: 13, fontFamily: "inherit", outline: "none" }}>
+            {getTzList().map(tz => <option key={tz} value={tz}>{tzLabel(tz)}</option>)}
+          </select>
+          <button onClick={() => setShowTzPicker(false)} style={{ background: "none", border: "none", fontSize: 14, color: "#9ca3af", cursor: "pointer" }}>{"\u00d7"}</button>
         </div>
       )}
       <div style={{ flex: 1, display: "flex", justifyContent: "center", padding: "20px 16px 40px" }}>
@@ -430,8 +461,8 @@ function MemberDash({ uid, m, getTeam, wci, dci, cmt, kpiP, stuckRes, seen, pto,
             ))}
           </div>
           {tab === "daily"
-            ? <DailyMember uid={uid} m={m} dci={dci} cmt={cmt} stuckRes={stuckRes} pto={pto} save={save} />
-            : <WeeklyMember uid={uid} m={m} wci={wci} dci={dci} cmt={cmt} kpiP={kpiP} pto={pto} save={save} />
+            ? <DailyMember uid={uid} m={m} dci={dci} cmt={cmt} stuckRes={stuckRes} pto={pto} save={save} tz={memberTz} />
+            : <WeeklyMember uid={uid} m={m} wci={wci} dci={dci} cmt={cmt} kpiP={kpiP} pto={pto} save={save} tz={memberTz} />
           }
         </div>
       </div>
@@ -440,7 +471,7 @@ function MemberDash({ uid, m, getTeam, wci, dci, cmt, kpiP, stuckRes, seen, pto,
 }
 
 // ─── Daily (Member) ───────────────────────────────────────
-function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save }) {
+function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
   const selDays = useMemo(() => memberSelectableDays(), []);
   const [selDate, setSelDate] = useState(selDays[0]);
   const existing = dci[`${uid}:${selDate}`];
@@ -468,7 +499,6 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save }) {
     setSaved(true); setTimeout(() => setSaved(false), 2500);
   };
 
-  const dailyStreak = getDailyStreak(uid, dci, pto);
   const dailyCmt = cmt[`d:${uid}:${selDate}`];
   const stuckThread = stuckRes[`${uid}:${selDate}`];
   const isPto = !!pto[`${uid}:${selDate}`];
@@ -481,15 +511,13 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save }) {
 
   return (
     <>
-      <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
-        <div style={{ flex: 1, background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "12px 16px" }}>
-          <div style={{ fontSize: 11, color: "#9ca3af", fontWeight: 500, textTransform: "uppercase", letterSpacing: 0.8 }}>{selDate === ds(TODAY) ? "Today" : dayLabel(selDate)}</div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: isPto ? "#6366f1" : existing ? "#10b981" : "#f59e0b", marginTop: 2 }}>{isPto ? "\u2708 PTO" : existing ? "\u2713 Submitted" : "Pending"}</div>
+      <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "12px 16px", marginBottom: 16 }}>
+        <div style={{ fontSize: 11, color: "#9ca3af", fontWeight: 500, textTransform: "uppercase", letterSpacing: 0.8 }}>{selDate === ds(TODAY) ? "Today" : dayLabel(selDate)}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
+          <span style={{ fontSize: 18, fontWeight: 700, color: isPto ? "#6366f1" : existing ? "#10b981" : "#f59e0b" }}>{isPto ? "\u2708 PTO" : existing ? "\u2713 Submitted" : "Pending"}</span>
+          {existing && isLate(selDate, existing.at, tz) && <LateBadge />}
         </div>
-        <div style={{ flex: 1, background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "12px 16px" }}>
-          <div style={{ fontSize: 11, color: "#9ca3af", fontWeight: 500, textTransform: "uppercase", letterSpacing: 0.8 }}>Weekday streak</div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: dailyStreak >= 5 ? "#10b981" : "#111", marginTop: 2 }}>{dailyStreak >= 5 ? "\ud83d\udd25 " : ""}{dailyStreak}d</div>
-        </div>
+        {existing?.at && <div style={{ fontSize: 11, color: isLate(selDate, existing.at, tz) ? "#b45309" : "#9ca3af", marginTop: 2 }}>{fmtSubmission(selDate, existing.at, tz)}</div>}
       </div>
 
       <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
@@ -551,7 +579,7 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save }) {
             <div style={{ textAlign: "left" }}><div style={{ fontSize: 14, fontWeight: 600, color: stuck ? "#dc2626" : "#6b7280" }}>I'm STUCK and need help</div></div>
           </button>
           <button onClick={submit} disabled={!worked.trim()} style={{ width: "100%", padding: "15px", borderRadius: 12, border: "none", background: !worked.trim() ? "#e5e7eb" : saved ? "#10b981" : "#111", color: !worked.trim() ? "#9ca3af" : "#fff", fontSize: 16, fontWeight: 700, cursor: worked.trim() ? "pointer" : "default", fontFamily: "inherit" }}>
-            {saved ? "\u2713 Saved!" : existing ? "Update" : "Submit daily update"}
+            {saved ? "\u2713 Saved!" : existing ? "Update" : selDate !== ds(TODAY) ? `Submit for ${dayLabel(selDate)}` : "Submit daily update"}
           </button>
         </>)}
 
@@ -575,8 +603,8 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save }) {
         {recentDays.map(d => (
           <div key={d.date} style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "14px 16px", marginBottom: 8 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-              <div style={{ display: "flex", gap: 6, alignItems: "center" }}><span style={{ fontSize: 13, fontWeight: 600 }}>{dayLabel(d.date)}</span>{d.edited && <EditedBadge />}</div>
-              <span style={{ fontSize: 11, color: "#9ca3af" }}>{daysAgo(d.date)}</span>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}><span style={{ fontSize: 13, fontWeight: 600 }}>{dayLabel(d.date)}</span>{d.edited && <EditedBadge />}{isLate(d.date, d.at, tz) && <LateBadge />}</div>
+              <span style={{ fontSize: 11, color: isLate(d.date, d.at, tz) ? "#b45309" : "#9ca3af" }}>{fmtSubmission(d.date, d.at, tz)}</span>
             </div>
             <div style={{ fontSize: 13, color: "#374151", lineHeight: 1.5, whiteSpace: "pre-line" }}>{d.worked}</div>
             {d.didnt && <div style={{ fontSize: 12, color: "#ef4444", marginTop: 4, whiteSpace: "pre-line" }}>{"\u21b3"} {d.didnt}</div>}
@@ -589,7 +617,7 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save }) {
 }
 
 // ─── Weekly KPI (Member) ──────────────────────────────────
-function WeeklyMember({ uid, m, wci, dci, cmt, kpiP, pto, save }) {
+function WeeklyMember({ uid, m, wci, dci, cmt, kpiP, pto, save, tz }) {
   const autoWeek = useMemo(() => { for (let i = CW; i >= 0; i--) { if (!wci[`${uid}:${WEEKS[i].id}`] && !isLocked(i)) return i; } return CW; }, [uid, wci]);
   const [wIdx, setWIdx] = useState(autoWeek);
   const [kpiStates, setKpiStates] = useState(m.kpis.map(() => ({ status: null, actual: "" })));
@@ -661,7 +689,7 @@ function WeeklyMember({ uid, m, wci, dci, cmt, kpiP, pto, save }) {
       <div style={{ background: "#fff", borderRadius: 16, border: "1px solid #e5e7eb", padding: "22px 20px 26px", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 2 }}>
           <span style={{ fontSize: 16, fontWeight: 700 }}>Week of {wk.label}</span>
-          {existing && <span style={{ fontSize: 11, color: "#10b981", fontWeight: 500 }}>{"\u2713"}</span>}
+          {existing && <span style={{ fontSize: 11, color: "#10b981", fontWeight: 500 }}>{"\u2713"} {fmtTime(existing.at, tz)}</span>}
         </div>
         <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 18 }}>{locked && !existing ? "Auto-red." : "Mark each KPI."}</div>
 
@@ -913,7 +941,10 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
                         {d.entry?.edited && <EditedBadge />}
                         {d.entry?.stuck && <StuckBadge />}
                       </div>
-                      <span style={{ fontSize: 11, color: d.entry ? "#10b981" : "#d1d5db" }}>{d.entry ? "\u2713" : "\u2014"}</span>
+                      <span style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                        {d.entry && isLate(d.date, d.entry.at, getTz(drillData.m, comp)) && <LateBadge />}
+                        <span style={{ fontSize: 11, color: d.entry ? (isLate(d.date, d.entry.at, getTz(drillData.m, comp)) ? "#b45309" : "#10b981") : "#d1d5db" }}>{d.entry ? fmtSubmission(d.date, d.entry.at, getTz(drillData.m, comp)) : "\u2014"}</span>
+                      </span>
                     </div>
                     {d.entry ? (
                       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -972,7 +1003,7 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
 
                   <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                     {dailyEntries.map(e => (
-                      <DailyCardCeo key={e.id} entry={e} date={feedDate} onDrill={() => setDrillPerson(e.id)} saveCmt={saveDailyCmt} nudge={nudge} copied={copied} />
+                      <DailyCardCeo key={e.id} entry={e} date={feedDate} tz={getTz(e, comp)} onDrill={() => setDrillPerson(e.id)} saveCmt={saveDailyCmt} nudge={nudge} copied={copied} />
                     ))}
                   </div>
                 </>
@@ -1258,6 +1289,16 @@ function AdminPanel({ cfg, saveCfg, compId, comp, onClose }) {
             </div>
 
             <div style={{ marginTop: 24, background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "16px" }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Company timezone</div>
+              <select value={comp.tz || BROWSER_TZ} onChange={async (e) => {
+                await saveCfg({ ...cfg, companies: { ...cfg.companies, [compId]: { ...comp, tz: e.target.value } } });
+              }} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1.5px solid #e5e7eb", fontSize: 13, fontFamily: "inherit", outline: "none" }}>
+                {getTzList().map(tz => <option key={tz} value={tz}>{tzLabel(tz)}</option>)}
+              </select>
+              <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 6 }}>Default timezone for all members. Members can override in their own settings.</div>
+            </div>
+
+            <div style={{ marginTop: 24, background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "16px" }}>
               <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Your CEO credentials</div>
               <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>Email: <span style={{ color: "#111", fontWeight: 500 }}>{cfg.ceoEmail}</span></div>
               <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 12 }}>Password: <span style={{ color: "#111", fontWeight: 500 }}>••••••</span></div>
@@ -1295,7 +1336,7 @@ function CeoPasswordChange({ cfg, saveCfg }) {
 }
 
 // ─── CEO Daily Card ───────────────────────────────────────
-function DailyCardCeo({ entry: e, date, onDrill, saveCmt, nudge, copied }) {
+function DailyCardCeo({ entry: e, date, tz, onDrill, saveCmt, nudge, copied }) {
   const [cmtOpen, setCmtOpen] = useState(false);
   const [cmtText, setCmtText] = useState(e.dailyCmt?.text || "");
   const resolved = e.stuckThread?.some(t => t.from === "ceo");
@@ -1327,9 +1368,10 @@ function DailyCardCeo({ entry: e, date, onDrill, saveCmt, nudge, copied }) {
         ) : (
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
             {e.daily.edited && <EditedBadge />}
+            {isLate(date, e.daily.at, tz) && <LateBadge />}
             {e.daily.stuck && !resolved && <StuckBadge />}
             {e.daily.stuck && resolved && <span style={{ fontSize: 11, color: "#10b981", fontWeight: 500 }}>{"\u2713"} Responded</span>}
-            <span style={{ fontSize: 11, color: "#9ca3af" }}>{new Date(e.daily.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+            <span style={{ fontSize: 11, color: isLate(date, e.daily.at, tz) ? "#b45309" : "#9ca3af" }}>{fmtSubmission(date, e.daily.at, tz)}</span>
           </div>
         )}
       </div>
