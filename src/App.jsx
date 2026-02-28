@@ -1285,6 +1285,7 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
           uid={viewAsMember.id} m={viewAsMember} getTeam={getTeam}
           wci={wci} dci={dci} cmt={cmt} kpiP={kpiP} stuckRes={stuckRes} seen={seen} pto={pto}
           save={save} logout={() => setViewAsMember(null)} cfg={cfg} saveCfg={saveCfg} compId={compId}
+          hash={hash} navigate={navigate}
         />
       </div>
     );
