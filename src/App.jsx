@@ -130,9 +130,10 @@ const Spark = ({ data, w = 60, h = 20 }) => {
   if (v.length < 2) return null; const step = w / (v.length - 1);
   return <svg width={w} height={h} style={{ display: "block" }}><polyline points={v.map((val, i) => `${i * step},${h - val * h}`).join(" ")} fill="none" stroke="#d1d5db" strokeWidth="1.5" />{v.map((val, i) => <circle key={i} cx={i * step} cy={h - val * h} r="2.5" fill={data[i] === "green" ? "#10b981" : data[i] === "red" || data[i] === "auto-red" ? "#ef4444" : "#d1d5db"} />)}</svg>;
 };
-const StuckBadge = () => <span style={{ background: "#fef2f2", color: "#dc2626", fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 4 }}>{"\ud83d\udea8"} STUCK</span>;
-const EditedBadge = () => <span style={{ fontSize: 10, color: "#9ca3af", fontStyle: "italic" }}>edited</span>;
-const LateBadge = () => <span style={{ background: "#fffbeb", color: "#b45309", fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 4 }}>LATE</span>;
+const badgeBase = { fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 4, display: "inline-flex", alignItems: "center", gap: 3, whiteSpace: "nowrap" };
+const StuckBadge = () => <span style={{ ...badgeBase, background: "#fef2f2", color: "#dc2626", border: "1px solid #fecaca" }}>{"\ud83d\udea8"} STUCK</span>;
+const EditedBadge = () => <span style={{ ...badgeBase, background: "#f3f4f6", color: "#6b7280", border: "1px solid #e5e7eb" }}>{"\u270e"} edited</span>;
+const LateBadge = () => <span style={{ ...badgeBase, background: "#fffbeb", color: "#b45309", border: "1px solid #fde68a" }}>{"\u23f0"} LATE</span>;
 const SideLabel = ({ children }) => <div style={{ fontSize: 10, color: "#9ca3af", padding: "14px 20px 6px", textTransform: "uppercase", letterSpacing: 1, fontWeight: 500 }}>{children}</div>;
 const SideBtn = ({ active, onClick, children }) => <button onClick={onClick} style={{ width: "100%", padding: "7px 20px", border: "none", cursor: "pointer", fontFamily: "'DM Sans',sans-serif", background: active ? "#f3f4f6" : "transparent", color: active ? "#111" : "#6b7280", fontSize: 13, fontWeight: active ? 500 : 400, textAlign: "left" }}>{children}</button>;
 
@@ -151,6 +152,7 @@ export default function App() {
   const compDataRef = useRef(compData);
   useEffect(() => { compDataRef.current = compData; }, [compData]);
   const [loaded, setLoaded] = useState(false);
+  const [dataLoaded, setDataLoaded] = useState(false);
   const [saveErr, setSaveErr] = useState(null);
 
   useNow(60000);
@@ -166,9 +168,11 @@ export default function App() {
 
   // ─── Load company data when session changes ───
   useEffect(() => {
-    if (!session?.compId) { setCompData({}); return; }
+    if (!session?.compId) { setCompData({}); setDataLoaded(false); return; }
+    setDataLoaded(false);
     (async () => {
       try { const r = await window.storage.get(dataKey(session.compId)); if (r?.value) setCompData(JSON.parse(r.value)); else setCompData({}); } catch { setCompData({}); }
+      setDataLoaded(true);
     })();
   }, [session?.compId]);
 
@@ -239,6 +243,8 @@ export default function App() {
 
   const getTeam = (uid) => Object.entries(comp.teams).find(([, t]) => t.members.some(m => m.id === uid));
 
+  if (!dataLoaded) return <DataLoadingScreen />;
+
   if (session.type === "ceo") {
     return <>
       <CeoDash
@@ -270,6 +276,38 @@ function LoadingScreen() {
   return <div style={{ display: "flex", height: "100vh", alignItems: "center", justifyContent: "center", fontFamily: "'DM Sans',sans-serif", color: "#9ca3af" }}>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&display=swap" rel="stylesheet" />
     Loading…
+  </div>;
+}
+
+function DataLoadingScreen() {
+  return (
+    <div style={{ minHeight: "100vh", fontFamily: "'DM Sans',-apple-system,sans-serif", background: "#fafafa" }}>
+      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&display=swap" rel="stylesheet" />
+      <div style={{ background: "#fff", borderBottom: "1px solid #e5e7eb", padding: "10px 20px", display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ fontSize: 18 }}>{"\u25ce"}</span><span style={{ fontSize: 15, fontWeight: 700, letterSpacing: -0.3 }}>Checkin</span>
+      </div>
+      <div style={{ maxWidth: 540, margin: "0 auto", padding: "20px 16px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
+          <div style={{ width: 44, height: 44, borderRadius: "50%", background: "#e5e7eb", animation: "pulse 1.5s ease-in-out infinite" }} />
+          <div><div style={{ width: 120, height: 16, borderRadius: 4, background: "#e5e7eb", marginBottom: 6 }} /><div style={{ width: 80, height: 12, borderRadius: 4, background: "#f3f4f6" }} /></div>
+        </div>
+        {[1, 2, 3].map(i => <div key={i} style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "20px", marginBottom: 12 }}>
+          <div style={{ width: "60%", height: 14, borderRadius: 4, background: "#e5e7eb", marginBottom: 10 }} />
+          <div style={{ width: "90%", height: 12, borderRadius: 4, background: "#f3f4f6", marginBottom: 6 }} />
+          <div style={{ width: "70%", height: 12, borderRadius: 4, background: "#f3f4f6" }} />
+        </div>)}
+        <div style={{ textAlign: "center", marginTop: 16, fontSize: 13, color: "#9ca3af" }}>Loading your data...</div>
+        <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }`}</style>
+      </div>
+    </div>
+  );
+}
+
+function SaveToast({ show }) {
+  if (!show) return null;
+  return <div style={{ position: "fixed", top: 20, left: "50%", transform: "translateX(-50%)", background: "#065f46", color: "#fff", padding: "12px 24px", borderRadius: 12, fontSize: 15, fontFamily: "'DM Sans',sans-serif", fontWeight: 700, zIndex: 9999, boxShadow: "0 8px 24px rgba(0,0,0,.2)", display: "flex", alignItems: "center", gap: 8, animation: "toastIn 0.3s ease-out" }}>
+    <span style={{ fontSize: 20 }}>{"\u2713"}</span> Saved successfully
+    <style>{`@keyframes toastIn { from { opacity: 0; transform: translateX(-50%) translateY(-12px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }`}</style>
   </div>;
 }
 
@@ -491,10 +529,12 @@ function MemberDash({ uid, m, getTeam, wci, dci, cmt, kpiP, stuckRes, seen, pto,
             {[["daily", "Daily Update", unreadDaily], ["weekly", "Weekly KPIs", unreadWeekly]].map(([id, l, unread]) => (
               <button key={id} onClick={() => setTab(id)} style={{
                 flex: 1, padding: "9px 0", borderRadius: 8, border: "none", cursor: "pointer", fontFamily: "inherit",
-                background: tab === id ? "#fff" : "transparent", color: tab === id ? "#111" : "#6b7280",
-                fontSize: 14, fontWeight: tab === id ? 600 : 400, boxShadow: tab === id ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+                background: tab === id ? "#fff" : unread > 0 ? "rgba(99,102,241,0.08)" : "transparent",
+                color: tab === id ? "#111" : unread > 0 ? "#4338ca" : "#6b7280",
+                fontSize: 14, fontWeight: tab === id ? 600 : unread > 0 ? 600 : 400,
+                boxShadow: tab === id ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-              }}>{l}{unread > 0 && <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#6366f1", display: "inline-block" }} />}</button>
+              }}>{l}{unread > 0 && <span style={{ minWidth: 18, height: 18, borderRadius: 9, background: "#6366f1", color: "#fff", fontSize: 10, fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 5px" }}>{unread}</span>}</button>
             ))}
           </div>
           {((unreadDaily > 0 && tab === "daily") || (unreadWeekly > 0 && tab === "weekly")) && (
@@ -557,6 +597,13 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
     return () => window.removeEventListener('beforeunload', handler);
   }, [worked, existing, saved]);
 
+  // Cmd+Enter / Ctrl+Enter to submit
+  useEffect(() => {
+    const handler = (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); submit(); } };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  });
+
   const isFutureDate = selDate > ds(getToday());
 
   const submit = async () => {
@@ -570,7 +617,7 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
     else { entry.originalAt = entry.at; }
     await save({ dci: { ...dci, [key]: entry } });
     try { localStorage.removeItem(draftKey); } catch {}
-    setSaved(true); setTimeout(() => setSaved(false), 2500);
+    setSaved(true); setTimeout(() => setSaved(false), 4000);
   };
 
   const dailyCmt = cmt[`d:${uid}:${selDate}`];
@@ -594,6 +641,7 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
 
   return (
     <>
+      <SaveToast show={saved} />
       <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "12px 16px", marginBottom: 16 }}>
         <div style={{ fontSize: 11, color: "#9ca3af", fontWeight: 500, textTransform: "uppercase", letterSpacing: 0.8 }}>{selDate === ds(getToday()) ? "Today" : dayLabel(selDate)}</div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
@@ -603,18 +651,19 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
         {existing?.at && <div style={{ fontSize: 11, color: isLate(selDate, existing.at, tz) ? "#b45309" : "#9ca3af", marginTop: 2 }}>{fmtSubmission(selDate, existing.at, tz)}</div>}
       </div>
 
-      <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 4, marginBottom: 16 }}>
         {selDays.map(d => {
           const sel = d === selDate; const has = !!dci[`${uid}:${d}`]; const isPtoDay = !!pto[`${uid}:${d}`]; const isFuture = d > ds(getToday());
+          const statusColor = has ? "#10b981" : isPtoDay ? "#6366f1" : null;
           return <button key={d} onClick={() => setSelDate(d)} style={{
-            flex: 1, padding: "7px 4px", borderRadius: 8, border: "1.5px solid", borderColor: sel ? "#111" : "#e5e7eb",
-            background: sel ? "#111" : "#fff", color: sel ? "#fff" : "#6b7280", fontSize: 12, fontWeight: 500,
+            padding: "8px 2px", borderRadius: 10, border: "2px solid", borderColor: sel ? "#111" : "#e5e7eb",
+            background: sel ? "#111" : "#fff", color: sel ? "#fff" : "#374151", fontSize: 13, fontWeight: sel ? 700 : 500,
             cursor: "pointer", fontFamily: "inherit", textAlign: "center", position: "relative", opacity: isFuture ? 0.4 : 1,
+            minWidth: 0,
           }}>
-            <div>{dayLabel(d).split(" ")[0]}</div>
-            <div style={{ fontSize: 10, opacity: 0.7 }}>{d.split("-")[2]}</div>
-            {has && <div style={{ width: 5, height: 5, borderRadius: "50%", background: sel ? "#fff" : "#10b981", position: "absolute", top: 3, right: 3 }} />}
-            {isPtoDay && !has && <div style={{ width: 5, height: 5, borderRadius: "50%", background: sel ? "#fff" : "#6366f1", position: "absolute", top: 3, right: 3 }} />}
+            <div style={{ fontSize: 12, fontWeight: 600 }}>{dayLabel(d).split(" ")[0]}</div>
+            <div style={{ fontSize: 13, fontWeight: 700, marginTop: 1 }}>{parseInt(d.split("-")[2])}</div>
+            {statusColor && <div style={{ width: 6, height: 6, borderRadius: "50%", background: sel ? "#fff" : statusColor, position: "absolute", top: 4, right: 4 }} />}
           </button>;
         })}
       </div>
@@ -644,7 +693,7 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
         ) : (<>
           <div style={{ marginBottom: 16 }}>
             <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 5, color: "#10b981" }}>1. What worked today? <span style={{ fontWeight: 400, color: "#6b7280" }}>Include numbers.</span></label>
-            <textarea value={worked} onChange={e => setWorked(e.target.value)} rows={3} placeholder=""
+            <textarea value={worked} onChange={e => setWorked(e.target.value)} rows={3} placeholder="e.g. Closed 3 deals worth $12K, finished onboarding deck, 15 cold calls — 4 booked"
               style={{ width: "100%", padding: "11px 14px", borderRadius: 10, border: "1.5px solid #e5e7eb", fontSize: 14, fontFamily: "inherit", outline: "none", resize: "vertical", boxSizing: "border-box", lineHeight: 1.5 }}
               onFocus={e => e.target.style.borderColor = "#10b981"} onBlur={e => e.target.style.borderColor = "#e5e7eb"} />
           </div>
@@ -652,23 +701,29 @@ function DailyMember({ uid, m, dci, cmt, stuckRes, pto, save, tz }) {
             <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 5, color: "#ef4444" }}>
               2. What didn't work, and what are you changing? {stuck && <span style={{ color: "#ef4444" }}>*</span>}
             </label>
-            <textarea ref={didntRef} value={didnt} onChange={e => { setDidnt(e.target.value); if (e.target.value.trim()) setStuckErr(false); }} rows={2} placeholder=""
+            <textarea ref={didntRef} value={didnt} onChange={e => { setDidnt(e.target.value); if (e.target.value.trim()) setStuckErr(false); }} rows={2} placeholder="e.g. Demo fell through — switching to async video pitches next week"
               style={{ width: "100%", padding: "11px 14px", borderRadius: 10, border: `1.5px solid ${(stuckErr || (stuck && !didnt.trim())) ? "#ef4444" : "#e5e7eb"}`, fontSize: 14, fontFamily: "inherit", outline: "none", resize: "vertical", boxSizing: "border-box", lineHeight: 1.5 }} />
             {(stuckErr || (stuck && !didnt.trim())) && <div style={{ fontSize: 12, color: "#ef4444", marginTop: 4, fontWeight: 500 }}>{"\u26a0"} Required when stuck — describe what isn't working and what you're changing.</div>}
           </div>
           <div style={{ marginBottom: 16 }}>
             <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 5, color: "#6366f1" }}>3. Plan for tomorrow — stuck on anything?</label>
-            <textarea value={plan} onChange={e => setPlan(e.target.value)} rows={2} placeholder=""
+            <textarea value={plan} onChange={e => setPlan(e.target.value)} rows={2} placeholder="e.g. Follow up with 5 warm leads, prep Q2 forecast, need help with pricing approval"
               style={{ width: "100%", padding: "11px 14px", borderRadius: 10, border: "1.5px solid #e5e7eb", fontSize: 14, fontFamily: "inherit", outline: "none", resize: "vertical", boxSizing: "border-box", lineHeight: 1.5 }} />
           </div>
-          <button onClick={() => { const next = !stuck; setStuck(next); if (next && !didnt.trim()) { setStuckErr(true); setTimeout(() => didntRef.current?.focus(), 50); } else { setStuckErr(false); } }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderRadius: 10, border: "2px solid", borderColor: stuck ? "#ef4444" : "#e5e7eb", background: stuck ? "#fef2f2" : "#fff", cursor: "pointer", fontFamily: "inherit", width: "100%", marginBottom: 20 }}>
-            <span style={{ fontSize: 18 }}>{stuck ? "\ud83d\udea8" : "\u26aa"}</span>
-            <div style={{ textAlign: "left" }}><div style={{ fontSize: 14, fontWeight: 600, color: stuck ? "#dc2626" : "#6b7280" }}>I'm STUCK and need help</div></div>
+          <button onClick={() => { const next = !stuck; setStuck(next); if (next && !didnt.trim()) { setStuckErr(true); setTimeout(() => didntRef.current?.focus(), 50); } else { setStuckErr(false); } }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderRadius: 12, border: "2px solid", borderColor: stuck ? "#ef4444" : "#f59e0b", background: stuck ? "#fef2f2" : "#fffbeb", cursor: "pointer", fontFamily: "inherit", width: "100%", marginBottom: 20, transition: "all 0.15s" }}>
+            <span style={{ fontSize: 20, width: 32, height: 32, borderRadius: "50%", background: stuck ? "#ef4444" : "#f59e0b", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{stuck ? "\ud83d\udea8" : "?"}</span>
+            <div style={{ textAlign: "left" }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: stuck ? "#dc2626" : "#92400e" }}>{stuck ? "STUCK — help requested" : "Need help? Tap here"}</div>
+              <div style={{ fontSize: 11, color: stuck ? "#ef4444" : "#b45309", fontWeight: 400 }}>{stuck ? "CEO will be notified" : "Flag this if you're blocked on something"}</div>
+            </div>
           </button>
           {isFutureDate && <div style={{ textAlign: "center", padding: "10px", fontSize: 13, color: "#9ca3af", fontStyle: "italic" }}>Can't submit for a future date.</div>}
-          <button onClick={submit} disabled={!worked.trim() || isFutureDate} style={{ width: "100%", padding: "15px", borderRadius: 12, border: "none", background: !worked.trim() || isFutureDate ? "#e5e7eb" : saved ? "#10b981" : "#111", color: !worked.trim() || isFutureDate ? "#9ca3af" : "#fff", fontSize: 16, fontWeight: 700, cursor: worked.trim() && !isFutureDate ? "pointer" : "default", fontFamily: "inherit" }}>
-            {saved ? "\u2713 Saved!" : existing ? "Update" : selDate !== ds(getToday()) ? `Submit for ${dayLabel(selDate)}` : "Submit daily update"}
-          </button>
+          <div style={{ position: "sticky", bottom: 0, background: "#fff", padding: "12px 0 4px", marginTop: 4, zIndex: 10 }}>
+            <button onClick={submit} disabled={!worked.trim() || isFutureDate} style={{ width: "100%", padding: "15px", borderRadius: 12, border: "none", background: !worked.trim() || isFutureDate ? "#e5e7eb" : saved ? "#10b981" : "#111", color: !worked.trim() || isFutureDate ? "#9ca3af" : "#fff", fontSize: 16, fontWeight: 700, cursor: worked.trim() && !isFutureDate ? "pointer" : "default", fontFamily: "inherit", transition: "background 0.2s" }}>
+              {saved ? "\u2713 Saved!" : existing ? "Update" : selDate !== ds(getToday()) ? `Submit for ${dayLabel(selDate)}` : "Submit daily update"}
+            </button>
+            {!isFutureDate && worked.trim() && <div style={{ textAlign: "center", fontSize: 10, color: "#9ca3af", marginTop: 4 }}>{navigator.platform?.includes("Mac") ? "\u2318" : "Ctrl"}+Enter</div>}
+          </div>
         </>)}
 
         {stuckThread && stuckThread.length > 0 && (
@@ -746,13 +801,14 @@ function WeeklyMember({ uid, m, wci, dci, cmt, kpiP, pto, save, tz }) {
   const submit = async () => {
     if (!allKpiSet || locked) return;
     await save({ wci: { ...wci, [key]: { kpis: kpiStates, challenge, at: new Date().toISOString() } } });
-    setSaved(true); setTimeout(() => setSaved(false), 2500);
+    setSaved(true); setTimeout(() => setSaved(false), 4000);
   };
 
   const vs = Math.max(0, CW - 11), vw = WEEKS.slice(vs, CW + 1);
 
   return (
     <>
+      <SaveToast show={saved} />
       {overdue && <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 12, padding: "10px 16px", marginBottom: 12, fontSize: 13, color: "#991b1b" }}>{"\u26a0"} <strong>Late.</strong> Submit before Sunday or auto-red.</div>}
       {dl && !existing && !overdue && <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 12, padding: "8px 16px", marginBottom: 12, fontSize: 13, color: "#92400e" }}>{"\u23f0"} Due in <strong>{dl}</strong></div>}
 
@@ -766,10 +822,10 @@ function WeeklyMember({ uid, m, wci, dci, cmt, kpiP, pto, save, tz }) {
           {streak > 0 && <div style={{ background: streak >= 6 ? "#ecfdf5" : "#f3f4f6", padding: "6px 14px", borderRadius: 20, fontSize: 13, fontWeight: 700, color: streak >= 6 ? "#065f46" : "#6b7280" }}>{streak >= 6 ? "\ud83d\udd25 " : ""}{streak}w</div>}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: `repeat(${vw.length},1fr)`, gap: 4 }}>
-          {vw.map((w, vi) => { const ri = vs + vi, s = hist[ri], cur = ri === CW; return <div key={w.id} onClick={() => !isLocked(ri) && setWIdx(ri)} style={{ aspectRatio: "1", borderRadius: 8, cursor: isLocked(ri) ? "default" : "pointer", background: s === "green" ? "#10b981" : s === "red" ? "#ef4444" : s === "auto-red" ? "#fca5a5" : cur ? "#f3f4f6" : "#f9fafb", border: ri === wIdx ? "2.5px solid #111" : "1.5px solid transparent", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", opacity: s === "auto-red" ? 0.5 : 1 }}>{s === "green" && <span style={{ color: "#fff" }}>{"\u2713"}</span>}{(s === "red" || s === "auto-red") && <span style={{ color: "#fff" }}>{"\u2717"}</span>}{!s && cur && <span style={{ fontSize: 9, color: "#9ca3af", fontWeight: 600 }}>NOW</span>}</div>; })}
+          {vw.map((w, vi) => { const ri = vs + vi, s = hist[ri], cur = ri === CW; return <div key={w.id} onClick={() => !isLocked(ri) && setWIdx(ri)} title={`${w.range}${s ? ` — ${s === "green" ? "Hit" : "Missed"}` : cur ? " — Current" : ""}`} style={{ aspectRatio: "1", borderRadius: 8, cursor: isLocked(ri) ? "default" : "pointer", background: s === "green" ? "#10b981" : s === "red" ? "#ef4444" : s === "auto-red" ? "#fca5a5" : cur ? "#f3f4f6" : "#f9fafb", border: ri === wIdx ? "2.5px solid #111" : "1.5px solid transparent", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", opacity: s === "auto-red" ? 0.5 : 1 }}>{s === "green" && <span style={{ color: "#fff", fontSize: 14, fontWeight: 800 }}>{"\u2713"}</span>}{(s === "red" || s === "auto-red") && <span style={{ color: "#fff", fontSize: 14, fontWeight: 800 }}>{"\u2717"}</span>}{!s && cur && <span style={{ fontSize: 9, color: "#9ca3af", fontWeight: 600 }}>NOW</span>}</div>; })}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: `repeat(${vw.length},1fr)`, gap: 4, marginTop: 3 }}>
-          {vw.map((w, vi) => <div key={w.id} style={{ textAlign: "center", fontSize: 9, color: vs + vi === wIdx ? "#111" : "#9ca3af", fontWeight: vs + vi === wIdx ? 700 : 400 }}>{w.short}</div>)}
+          {vw.map((w, vi) => <div key={w.id} title={w.range} style={{ textAlign: "center", fontSize: 9, color: vs + vi === wIdx ? "#111" : "#9ca3af", fontWeight: vs + vi === wIdx ? 700 : 400, cursor: "default" }}>{w.short}</div>)}
         </div>
       </div>
 
@@ -801,12 +857,12 @@ function WeeklyMember({ uid, m, wci, dci, cmt, kpiP, pto, save, tz }) {
                 <div key={ki} style={{ border: "1.5px solid", borderColor: kpiStates[ki]?.status === "green" ? "#10b981" : kpiStates[ki]?.status === "red" ? "#ef4444" : "#e5e7eb", borderRadius: 12, padding: "14px 16px", background: kpiStates[ki]?.status === "green" ? "#f0fdf4" : kpiStates[ki]?.status === "red" ? "#fef2f2" : "#fff", transition: "all 0.15s" }}>
                   <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10 }}>{kpi}</div>
                   <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-                    {[{ s: "green", icon: "\u2713", l: "Green", bd: "#10b981", bg: "#d1fae5", t: "#065f46" }, { s: "red", icon: "\u2717", l: "Red", bd: "#ef4444", bg: "#fee2e2", t: "#991b1b" }].map(o => (
+                    {[{ s: "green", icon: "\u2713", l: "Hit", bd: "#10b981", bg: "#d1fae5", t: "#065f46", shape: "circle" }, { s: "red", icon: "\u2717", l: "Miss", bd: "#ef4444", bg: "#fee2e2", t: "#991b1b", shape: "square" }].map(o => (
                       <button key={o.s} onClick={() => { const n = [...kpiStates]; n[ki] = { ...n[ki], status: o.s }; setKpiStates(n); }} disabled={locked} style={{
                         flex: 1, padding: "10px", borderRadius: 10, border: "2px solid", borderColor: kpiStates[ki]?.status === o.s ? o.bd : "#e5e7eb", background: kpiStates[ki]?.status === o.s ? o.bg : "#fff", cursor: locked ? "default" : "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: 6
                       }}>
-                        <span style={{ width: 22, height: 22, borderRadius: "50%", background: kpiStates[ki]?.status === o.s ? o.bd : "#f3f4f6", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: kpiStates[ki]?.status === o.s ? "#fff" : "#d1d5db", fontWeight: 700 }}>{o.icon}</span>
-                        <span style={{ fontSize: 14, fontWeight: 600, color: kpiStates[ki]?.status === o.s ? o.t : "#9ca3af" }}>{o.l}</span>
+                        <span style={{ width: 24, height: 24, borderRadius: o.shape === "circle" ? "50%" : 4, background: kpiStates[ki]?.status === o.s ? o.bd : "#f3f4f6", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: kpiStates[ki]?.status === o.s ? "#fff" : "#d1d5db", fontWeight: 800 }}>{o.icon}</span>
+                        <span style={{ fontSize: 14, fontWeight: 700, color: kpiStates[ki]?.status === o.s ? o.t : "#9ca3af" }}>{o.l}</span>
                       </button>
                     ))}
                   </div>
@@ -817,7 +873,7 @@ function WeeklyMember({ uid, m, wci, dci, cmt, kpiP, pto, save, tz }) {
             </div>
             <div style={{ marginBottom: 22 }}>
               <label style={{ fontSize: 13, fontWeight: 500, display: "block", marginBottom: 5 }}>Challenges? <span style={{ fontWeight: 400, color: "#9ca3af" }}>(optional)</span></label>
-              <textarea value={challenge} onChange={e => setChallenge(e.target.value)} disabled={locked} placeholder="" rows={2} style={{ width: "100%", padding: "11px 14px", borderRadius: 10, border: "1.5px solid #e5e7eb", fontSize: 14, fontFamily: "inherit", outline: "none", resize: "vertical", boxSizing: "border-box" }} />
+              <textarea value={challenge} onChange={e => setChallenge(e.target.value)} disabled={locked} placeholder="e.g. Pipeline slowed down — need marketing support on lead gen" rows={2} style={{ width: "100%", padding: "11px 14px", borderRadius: 10, border: "1.5px solid #e5e7eb", fontSize: 14, fontFamily: "inherit", outline: "none", resize: "vertical", boxSizing: "border-box" }} />
             </div>
             <button onClick={submit} disabled={!allKpiSet || locked} style={{ width: "100%", padding: "15px", borderRadius: 12, border: "none", background: !allKpiSet || locked ? "#e5e7eb" : saved ? "#10b981" : "#111", color: !allKpiSet || locked ? "#9ca3af" : "#fff", fontSize: 16, fontWeight: 700, cursor: allKpiSet && !locked ? "pointer" : "default", fontFamily: "inherit" }}>
               {saved ? "\u2713 Saved!" : existing ? "Update" : "Submit"}
@@ -1205,7 +1261,7 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
                         <div style={{ textAlign: "center" }}>
                           {m.weekEntry?.kpis ? (
                             <div style={{ display: "flex", gap: 3, justifyContent: "center" }}>
-                              {m.weekEntry.kpis.map((k, ki) => <span key={ki} style={{ width: 16, height: 16, borderRadius: "50%", background: k.status === "green" ? "#10b981" : "#ef4444", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 8, color: "#fff", fontWeight: 700 }}>{k.status === "green" ? "\u2713" : "\u2717"}</span>)}
+                              {m.weekEntry.kpis.map((k, ki) => <span key={ki} style={{ width: 16, height: 16, borderRadius: k.status === "green" ? "50%" : 3, background: k.status === "green" ? "#10b981" : "#ef4444", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: "#fff", fontWeight: 800 }}>{k.status === "green" ? "\u2713" : "\u2717"}</span>)}
                             </div>
                           ) : <span style={{ fontSize: 11, color: isLocked(wIdx) ? "#ef4444" : "#d1d5db" }}>{isLocked(wIdx) ? "Auto-red" : "Pending"}</span>}
                         </div>
@@ -1226,11 +1282,11 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
                   <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: 20, overflow: "auto" }}>
                     <div style={{ display: "grid", gridTemplateColumns: `140px repeat(${vw.length},1fr)`, gap: 3, alignItems: "center" }}>
                       <div />
-                      {vw.map((w, i) => <div key={w.id} style={{ fontSize: 10, color: vs + i === wIdx ? "#111" : "#9ca3af", fontWeight: vs + i === wIdx ? 700 : 400, textAlign: "center" }}>{w.label}</div>)}
+                      {vw.map((w, i) => <div key={w.id} title={w.range} style={{ fontSize: 10, color: vs + i === wIdx ? "#111" : "#9ca3af", fontWeight: vs + i === wIdx ? 700 : 400, textAlign: "center" }}>{w.label}</div>)}
                       {filteredMembers.map(m => (
                         <React.Fragment key={m.id}>
                           <div style={{ fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }} onClick={() => setDrillPerson(m.id)}><Av i={m.av} s={20} />{m.name.split(" ")[0]}</div>
-                          {vw.map((w, vi) => { const s = rs(m.id, vs + vi); return <div key={w.id} style={{ height: 28, borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", background: s === "green" ? "#d1fae5" : s === "red" || s === "auto-red" ? "#fee2e2" : "#f3f4f6", border: vs + vi === wIdx ? "2px solid #111" : "1px solid transparent" }}>{s === "green" ? <span style={{ fontSize: 11, color: "#065f46", fontWeight: 600 }}>{"\u2713"}</span> : s ? <span style={{ fontSize: 11, color: "#991b1b", fontWeight: 600 }}>{"\u2717"}</span> : <span style={{ fontSize: 11, color: "#d1d5db" }}>{"\u00b7"}</span>}</div>; })}
+                          {vw.map((w, vi) => { const s = rs(m.id, vs + vi); return <div key={w.id} title={`${w.range} — ${s === "green" ? "Hit" : s ? "Missed" : "Pending"}`} style={{ height: 28, borderRadius: s === "green" ? 14 : 4, display: "flex", alignItems: "center", justifyContent: "center", background: s === "green" ? "#d1fae5" : s === "red" || s === "auto-red" ? "#fee2e2" : "#f3f4f6", border: vs + vi === wIdx ? "2px solid #111" : s === "green" ? "1.5px solid #10b981" : s ? "1.5px solid #ef4444" : "1px solid transparent" }}>{s === "green" ? <span style={{ fontSize: 12, color: "#065f46", fontWeight: 800 }}>{"\u2713"}</span> : s ? <span style={{ fontSize: 12, color: "#991b1b", fontWeight: 800 }}>{"\u2717"}</span> : <span style={{ fontSize: 11, color: "#d1d5db" }}>{"\u00b7"}</span>}</div>; })}
                           <div style={{ fontSize: 9, color: "#9ca3af", textAlign: "right" }}>daily</div>
                           {vw.map((w, vi) => { const days = weekdaysInWeek(vs + vi); const ptoCt = days.filter(d => pto[`${m.id}:${d}`]).length; const ct = days.filter(d => dci[`${m.id}:${d}`]).length; const tot = days.length - ptoCt; const pct = tot ? ct / tot : 0; return <div key={w.id + "d"} style={{ height: 16, borderRadius: 3, display: "flex", alignItems: "center", justifyContent: "center", background: pct >= 0.8 ? "#dbeafe" : pct >= 0.4 ? "#fef3c7" : "#f3f4f6" }}><span style={{ fontSize: 9, color: pct >= 0.8 ? "#1e40af" : pct >= 0.4 ? "#92400e" : "#d1d5db", fontWeight: 500 }}>{ct}/{tot}</span></div>; })}
                         </React.Fragment>
