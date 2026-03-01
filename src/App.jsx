@@ -27,6 +27,19 @@ function useHashRoute() {
   }, []);
   return { hash, navigate };
 }
+
+// ─── Responsive Hook ─────────────────────────────────────
+function useIsMobile(breakpoint = 768) {
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < breakpoint);
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${breakpoint - 1}px)`);
+    const handler = (e) => setIsMobile(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, [breakpoint]);
+  return isMobile;
+}
+
 function parseRoute(hash) {
   const parts = hash.split("/").filter(Boolean);
   return { view: parts[0] || "", sub: parts[1] || "", param: parts[2] || "" };
@@ -1187,6 +1200,8 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
   const setShowAdmin = useCallback((v) => { if (v) navigate("admin"); else navigate("daily"); }, [navigate]);
   const [viewAsMember, setViewAsMember] = useState(null);
   const [viewAsOpen, setViewAsOpen] = useState(false);
+  const isMobile = useIsMobile();
+  const [menuOpen, setMenuOpen] = useState(false);
 
   // Check if company has any members
   const hasMembers = allMembers.length > 0;
@@ -1274,12 +1289,12 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
   if (viewAsMember) {
     return (
       <div style={{ fontFamily: S.font }}>
-        <div style={{ background: "#111", color: "#fff", padding: "8px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 11, background: "rgba(255,255,255,0.15)", padding: "2px 8px", borderRadius: 4, fontWeight: 600 }}>PREVIEW</span>
-            <span>Viewing as <b>{viewAsMember.name}</b></span>
+        <div style={{ background: "#111", color: "#fff", padding: isMobile ? "8px 12px" : "8px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: isMobile ? 12 : 13, gap: 8, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+            <span style={{ fontSize: 11, background: "rgba(255,255,255,0.15)", padding: "2px 8px", borderRadius: 4, fontWeight: 600, flexShrink: 0 }}>PREVIEW</span>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Viewing as <b>{viewAsMember.name}</b></span>
           </div>
-          <button onClick={() => setViewAsMember(null)} style={{ background: "#fff", color: "#111", border: "none", padding: "5px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Exit preview</button>
+          <button onClick={() => setViewAsMember(null)} style={{ background: "#fff", color: "#111", border: "none", padding: "5px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>Exit preview</button>
         </div>
         <MemberDash
           uid={viewAsMember.id} m={viewAsMember} getTeam={getTeam}
@@ -1291,66 +1306,101 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
     );
   }
 
-  return (
-    <div style={{ display: "flex", minHeight: "100vh", fontFamily: S.font, background: S.bg, color: S.textPrimary }}>
-
-      {/* Sidebar */}
-      <div style={{ width: 200, background: "#fff", borderRight: "1px solid #e5e7eb", padding: "20px 0", flexShrink: 0, display: "flex", flexDirection: "column" }}>
-        <div style={{ padding: "0 20px", marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 18 }}>{"\u25ce"}</span><span style={{ fontSize: 16, fontWeight: 700, letterSpacing: -0.3 }}>Checkin</span>
-        </div>
-
-        {/* Company switcher */}
-        {Object.keys(allCompanies).length > 1 && (
-          <div style={{ padding: "0 12px", marginBottom: 12 }}>
-            <select value={compId} onChange={e => switchCompany(e.target.value)} style={{ width: "100%", padding: "6px 8px", borderRadius: 6, border: "1px solid #e5e7eb", fontSize: 12, fontFamily: "inherit", background: "#f9fafb", cursor: "pointer" }}>
-              {Object.entries(allCompanies).map(([id, c]) => <option key={id} value={id}>{c.name}</option>)}
-            </select>
-          </div>
-        )}
-        {Object.keys(allCompanies).length === 1 && (
-          <div style={{ padding: "0 20px", marginBottom: 12, fontSize: 12, color: "#9ca3af" }}>{comp.name}</div>
-        )}
-
-        <SideLabel>View</SideLabel>
-        {[["daily", "\ud83d\udccb Daily Feed"], ["weekly", "\u25ce Weekly KPIs"], ["heatmap", "\u25a6 Heatmap"]].map(([id, l]) => (<SideBtn key={id} active={view === id} onClick={() => navigate(id)}>{l}</SideBtn>))}
-
-        {Object.keys(TEAMS).length > 0 && <>
-          <SideLabel>Teams</SideLabel>
-          {[{ id: null, l: "All teams" }, ...Object.entries(TEAMS).map(([k, t]) => ({ id: k, l: t.name }))].map(x => (<SideBtn key={x.l} active={filter === x.id} onClick={() => setFilter(x.id)}>{"\u25ce"} {x.l}</SideBtn>))}
-        </>}
-
-        <div style={{ flex: 1 }} />
-        {stuckCount > 0 && view !== "daily" && <div style={{ padding: "10px 20px", borderTop: "1px solid #f3f4f6", fontSize: 12, color: "#dc2626", fontWeight: 600, cursor: "pointer" }} onClick={() => navigate("daily")}>{"\ud83d\udea8"} {stuckCount} stuck</div>}
-        <div style={{ padding: "6px 12px", borderTop: "1px solid #f3f4f6" }}>
-          <button onClick={() => setShowAdmin(true)} style={{ width: "100%", padding: "7px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", fontSize: 12, cursor: "pointer", fontFamily: "inherit", color: "#6b7280", marginBottom: 4 }}>{"\u2699"} Manage</button>
-          <div style={{ position: "relative", marginBottom: 4 }}>
-            <button onClick={() => setViewAsOpen(!viewAsOpen)} style={{ width: "100%", padding: "7px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", fontSize: 12, cursor: "pointer", fontFamily: "inherit", color: "#6b7280" }}>{"\ud83d\udc41"} View as…</button>
-            {viewAsOpen && (
-              <div style={{ position: "absolute", bottom: "100%", left: 0, right: 0, marginBottom: 4, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, boxShadow: "0 4px 16px rgba(0,0,0,0.12)", maxHeight: 240, overflowY: "auto", zIndex: 100 }}>
-                <div style={{ padding: "8px 12px", fontSize: 11, fontWeight: 600, color: "#9ca3af", borderBottom: "1px solid #f3f4f6" }}>Select team member</div>
-                {Object.entries(TEAMS).map(([tid, team]) => (
-                  <div key={tid}>
-                    <div style={{ padding: "6px 12px", fontSize: 10, fontWeight: 600, color: "#9ca3af", textTransform: "uppercase", letterSpacing: 0.5 }}>{team.name}</div>
-                    {team.members.map(m => (
-                      <button key={m.id} onClick={() => { setViewAsMember(m); setViewAsOpen(false); }}
-                        style={{ width: "100%", padding: "8px 12px", border: "none", background: "none", textAlign: "left", cursor: "pointer", fontFamily: "inherit", fontSize: 12, color: "#374151", display: "flex", alignItems: "center", gap: 8 }}
-                        onMouseEnter={e => e.currentTarget.style.background = "#f3f4f6"} onMouseLeave={e => e.currentTarget.style.background = "none"}>
-                        <Av i={m.av} s={22} /><div><div style={{ fontWeight: 500 }}>{m.name}</div><div style={{ fontSize: 10, color: "#9ca3af" }}>{m.role}</div></div>
-                      </button>
-                    ))}
-                  </div>
-                ))}
-                {allMembers.length === 0 && <div style={{ padding: "12px", fontSize: 12, color: "#9ca3af", textAlign: "center" }}>No members yet</div>}
-              </div>
-            )}
-          </div>
-          <button onClick={logout} style={{ width: "100%", padding: "7px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", fontSize: 12, cursor: "pointer", fontFamily: "inherit", color: "#6b7280" }}>Sign out</button>
-        </div>
+  const sidebarContent = <>
+    {/* Company switcher */}
+    {Object.keys(allCompanies).length > 1 && (
+      <div style={{ padding: "0 12px", marginBottom: 12 }}>
+        <select value={compId} onChange={e => switchCompany(e.target.value)} style={{ width: "100%", padding: "6px 8px", borderRadius: 6, border: "1px solid #e5e7eb", fontSize: 12, fontFamily: "inherit", background: "#f9fafb", cursor: "pointer" }}>
+          {Object.entries(allCompanies).map(([id, c]) => <option key={id} value={id}>{c.name}</option>)}
+        </select>
       </div>
+    )}
+    {Object.keys(allCompanies).length === 1 && (
+      <div style={{ padding: "0 20px", marginBottom: 12, fontSize: 12, color: "#9ca3af" }}>{comp.name}</div>
+    )}
+
+    <SideLabel>View</SideLabel>
+    {[["daily", "\ud83d\udccb Daily Feed"], ["weekly", "\u25ce Weekly KPIs"], ["heatmap", "\u25a6 Heatmap"]].map(([id, l]) => (<SideBtn key={id} active={view === id} onClick={() => { navigate(id); setMenuOpen(false); }}>{l}</SideBtn>))}
+
+    {Object.keys(TEAMS).length > 0 && <>
+      <SideLabel>Teams</SideLabel>
+      {[{ id: null, l: "All teams" }, ...Object.entries(TEAMS).map(([k, t]) => ({ id: k, l: t.name }))].map(x => (<SideBtn key={x.l} active={filter === x.id} onClick={() => { setFilter(x.id); setMenuOpen(false); }}>{"\u25ce"} {x.l}</SideBtn>))}
+    </>}
+
+    <div style={{ flex: 1 }} />
+    {stuckCount > 0 && view !== "daily" && <div style={{ padding: "10px 20px", borderTop: "1px solid #f3f4f6", fontSize: 12, color: "#dc2626", fontWeight: 600, cursor: "pointer" }} onClick={() => { navigate("daily"); setMenuOpen(false); }}>{"\ud83d\udea8"} {stuckCount} stuck</div>}
+    <div style={{ padding: "6px 12px", borderTop: "1px solid #f3f4f6" }}>
+      <button onClick={() => { setShowAdmin(true); setMenuOpen(false); }} style={{ width: "100%", padding: "7px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", fontSize: 12, cursor: "pointer", fontFamily: "inherit", color: "#6b7280", marginBottom: 4 }}>{"\u2699"} Manage</button>
+      <div style={{ position: "relative", marginBottom: 4 }}>
+        <button onClick={() => setViewAsOpen(!viewAsOpen)} style={{ width: "100%", padding: "7px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", fontSize: 12, cursor: "pointer", fontFamily: "inherit", color: "#6b7280" }}>{"\ud83d\udc41"} View as…</button>
+        {viewAsOpen && (
+          <div style={{ position: "absolute", bottom: "100%", left: 0, right: 0, marginBottom: 4, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, boxShadow: "0 4px 16px rgba(0,0,0,0.12)", maxHeight: 240, overflowY: "auto", zIndex: 100 }}>
+            <div style={{ padding: "8px 12px", fontSize: 11, fontWeight: 600, color: "#9ca3af", borderBottom: "1px solid #f3f4f6" }}>Select team member</div>
+            {Object.entries(TEAMS).map(([tid, team]) => (
+              <div key={tid}>
+                <div style={{ padding: "6px 12px", fontSize: 10, fontWeight: 600, color: "#9ca3af", textTransform: "uppercase", letterSpacing: 0.5 }}>{team.name}</div>
+                {team.members.map(m => (
+                  <button key={m.id} onClick={() => { setViewAsMember(m); setViewAsOpen(false); setMenuOpen(false); }}
+                    style={{ width: "100%", padding: "8px 12px", border: "none", background: "none", textAlign: "left", cursor: "pointer", fontFamily: "inherit", fontSize: 12, color: "#374151", display: "flex", alignItems: "center", gap: 8 }}
+                    onMouseEnter={e => e.currentTarget.style.background = "#f3f4f6"} onMouseLeave={e => e.currentTarget.style.background = "none"}>
+                    <Av i={m.av} s={22} /><div><div style={{ fontWeight: 500 }}>{m.name}</div><div style={{ fontSize: 10, color: "#9ca3af" }}>{m.role}</div></div>
+                  </button>
+                ))}
+              </div>
+            ))}
+            {allMembers.length === 0 && <div style={{ padding: "12px", fontSize: 12, color: "#9ca3af", textAlign: "center" }}>No members yet</div>}
+          </div>
+        )}
+      </div>
+      <button onClick={logout} style={{ width: "100%", padding: "7px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", fontSize: 12, cursor: "pointer", fontFamily: "inherit", color: "#6b7280" }}>Sign out</button>
+    </div>
+  </>;
+
+  return (
+    <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", minHeight: "100vh", fontFamily: S.font, background: S.bg, color: S.textPrimary }}>
+
+      {/* Mobile top bar */}
+      {isMobile && (
+        <div style={{ background: "#fff", borderBottom: "1px solid #e5e7eb", padding: "10px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, zIndex: 50 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button onClick={() => setMenuOpen(true)} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", padding: 0, lineHeight: 1, color: "#374151" }}>{"\u2630"}</button>
+            <span style={{ fontSize: 16, fontWeight: 700, letterSpacing: -0.3 }}>{"\u25ce"} Checkin</span>
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <button onClick={() => { setShowAdmin(true); }} style={{ background: "none", border: "none", fontSize: 12, color: "#6b7280", cursor: "pointer", fontFamily: "inherit" }}>{"\u2699"}</button>
+            <button onClick={logout} style={{ background: "none", border: "none", fontSize: 12, color: "#6b7280", cursor: "pointer", fontFamily: "inherit" }}>Sign out</button>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile sidebar overlay */}
+      {isMobile && menuOpen && (
+        <>
+          <div onClick={() => setMenuOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.3)", zIndex: 998 }} />
+          <div style={{ position: "fixed", top: 0, left: 0, width: 260, height: "100vh", background: "#fff", zIndex: 999, display: "flex", flexDirection: "column", boxShadow: "4px 0 24px rgba(0,0,0,0.12)", overflowY: "auto" }}>
+            <div style={{ padding: "16px 20px 8px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 18 }}>{"\u25ce"}</span><span style={{ fontSize: 16, fontWeight: 700, letterSpacing: -0.3 }}>Checkin</span>
+              </div>
+              <button onClick={() => setMenuOpen(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#6b7280", padding: 0 }}>{"\u00d7"}</button>
+            </div>
+            {sidebarContent}
+          </div>
+        </>
+      )}
+
+      {/* Desktop sidebar */}
+      {!isMobile && (
+        <div style={{ width: 200, background: "#fff", borderRight: "1px solid #e5e7eb", padding: "20px 0", flexShrink: 0, display: "flex", flexDirection: "column" }}>
+          <div style={{ padding: "0 20px", marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 18 }}>{"\u25ce"}</span><span style={{ fontSize: 16, fontWeight: 700, letterSpacing: -0.3 }}>Checkin</span>
+          </div>
+          {sidebarContent}
+        </div>
+      )}
 
       {/* Main */}
-      <div style={{ flex: 1, padding: "20px 28px", overflow: "auto" }}>
+      <div style={{ flex: 1, padding: isMobile ? "16px 12px" : "20px 28px", overflow: "auto" }}>
 
         {/* Empty state: no members yet */}
         {!hasMembers && !showAdmin && (
@@ -1376,14 +1426,14 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 <div style={{ fontSize: 14, fontWeight: 600, color: "#374151", marginBottom: 8 }}>Week of {drillWk.label} — daily breakdown</div>
                 {drillData.dailies.map(d => (
-                  <div key={d.date} style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "14px 16px" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: d.entry ? 8 : 0 }}>
-                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <div key={d.date} style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: isMobile ? "12px" : "14px 16px" }}>
+                    <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", justifyContent: "space-between", alignItems: isMobile ? "flex-start" : "center", marginBottom: d.entry ? 8 : 0, gap: isMobile ? 4 : 0 }}>
+                      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                         <span style={{ fontSize: 13, fontWeight: 600 }}>{dayLabel(d.date)}</span>
                         {d.entry?.edited && <EditedBadge />}
                         {d.entry?.stuck && <StuckBadge />}
                       </div>
-                      <span style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                      <span style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
                         {d.entry && isLate(d.date, d.entry.at, getTz(drillData.m, comp)) && <LateBadge />}
                         <span style={{ fontSize: 11, color: d.entry ? (isLate(d.date, d.entry.at, getTz(drillData.m, comp)) ? "#b45309" : "#10b981") : "#d1d5db" }}>{d.entry ? fmtSubmission(d.date, d.entry.at, getTz(drillData.m, comp)) : "\u2014"}</span>
                       </span>
@@ -1442,14 +1492,14 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
               {/* ═══ DAILY ═══ */}
               {view === "daily" && (
                 <>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                    <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0, letterSpacing: -0.3 }}>Daily Feed</h1>
+                  <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", justifyContent: isMobile ? "flex-start" : "space-between", alignItems: isMobile ? "flex-start" : "center", marginBottom: 4, gap: isMobile ? 2 : 0 }}>
+                    <h1 style={{ fontSize: isMobile ? 18 : 20, fontWeight: 700, margin: 0, letterSpacing: -0.3 }}>Daily Feed</h1>
                     <div style={{ fontSize: 13, color: "#6b7280" }}>{submittedCount}/{filteredMembers.length} submitted</div>
                   </div>
-                  <div style={{ display: "flex", gap: 4, marginBottom: 16, marginTop: 8 }}>
+                  <div style={{ display: "flex", gap: 4, marginBottom: 16, marginTop: 8, overflowX: isMobile ? "auto" : "visible", WebkitOverflowScrolling: "touch", paddingBottom: isMobile ? 4 : 0 }}>
                     {browDays.map(d => {
                       const sel = d === feedDate; const ct = filteredMembers.filter(m => dci[`${m.id}:${d}`]).length;
-                      return <button key={d} onClick={() => setFeedDate(d)} style={{ flex: 1, padding: "8px 6px", borderRadius: 8, border: "1.5px solid", borderColor: sel ? "#111" : "#e5e7eb", background: sel ? "#111" : "#fff", color: sel ? "#fff" : "#6b7280", fontSize: 12, fontWeight: 500, cursor: "pointer", fontFamily: "inherit", textAlign: "center" }}>
+                      return <button key={d} onClick={() => setFeedDate(d)} style={{ flex: isMobile ? "0 0 auto" : 1, minWidth: isMobile ? 60 : undefined, padding: "8px 6px", borderRadius: 8, border: "1.5px solid", borderColor: sel ? "#111" : "#e5e7eb", background: sel ? "#111" : "#fff", color: sel ? "#fff" : "#6b7280", fontSize: 12, fontWeight: 500, cursor: "pointer", fontFamily: "inherit", textAlign: "center" }}>
                         <div>{dayLabel(d).split(" ")[0]}</div>
                         <div style={{ fontSize: 10, opacity: 0.7 }}>{ct}/{filteredMembers.length}</div>
                       </button>;
@@ -1474,7 +1524,7 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
 
                   <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                     {dailyEntries.map(e => (
-                      <DailyCardCeo key={e.id} entry={e} date={feedDate} tz={getTz(e, comp)} onDrill={() => setDrillPerson(e.id)} saveCmt={saveDailyCmt} nudge={nudge} copied={copied} />
+                      <DailyCardCeo key={e.id} entry={e} date={feedDate} tz={getTz(e, comp)} onDrill={() => setDrillPerson(e.id)} saveCmt={saveDailyCmt} nudge={nudge} copied={copied} isMobile={isMobile} />
                     ))}
                   </div>
                 </>
@@ -1484,7 +1534,7 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
               {view === "weekly" && (
                 <>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                    <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0, letterSpacing: -0.3 }}>{wk.range}</h1>
+                    <h1 style={{ fontSize: isMobile ? 18 : 20, fontWeight: 700, margin: 0, letterSpacing: -0.3 }}>{wk.range}</h1>
                     <div style={{ display: "flex", gap: 6 }}>
                       <button onClick={() => setWIdx(Math.max(0, wIdx - 1))} disabled={wIdx === 0} style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", cursor: wIdx > 0 ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, color: "#6b7280" }}>{"\u2190"}</button>
                       <button onClick={() => setWIdx(Math.min(CW, wIdx + 1))} disabled={wIdx === CW} style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", cursor: wIdx < CW ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, color: "#6b7280" }}>{"\u2192"}</button>
@@ -1492,39 +1542,67 @@ function CeoDash({ comp, compId, allCompanies, allMembers, getTeam, wci, dci, cm
                   </div>
                   <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 16 }}>{isLocked(wIdx) ? "Locked" : isOverdue(wIdx) ? "Grace period" : timeLeft(wIdx) ? `${timeLeft(wIdx)} left` : "Current week"}</div>
 
-                  <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", overflow: "hidden" }}>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 100px 60px 100px", padding: "10px 16px", background: "#f9fafb", borderBottom: "1px solid #e5e7eb", fontSize: 11, color: "#9ca3af", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>
-                      <div>Person</div><div style={{ textAlign: "center" }}>KPI Status</div><div style={{ textAlign: "center" }}>Dailies</div><div style={{ textAlign: "right" }}>Action</div>
-                    </div>
-                    {weeklyTableData.map(m => (
-                      <div key={m.id} style={{ display: "grid", gridTemplateColumns: "1fr 100px 60px 100px", padding: "12px 16px", borderBottom: "1px solid #f3f4f6", alignItems: "center" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }} onClick={() => setDrillPerson(m.id)}>
-                          <Av i={m.av} s={26} />
-                          <div><div style={{ fontSize: 13, fontWeight: 600 }}>{m.name}</div><div style={{ fontSize: 11, color: "#9ca3af" }}>{m.role}</div></div>
-                        </div>
-                        <div style={{ textAlign: "center" }}>
-                          {m.weekEntry?.kpis ? (
-                            <div style={{ display: "flex", gap: 3, justifyContent: "center" }}>
-                              {m.weekEntry.kpis.map((k, ki) => <span key={ki} style={{ width: 16, height: 16, borderRadius: k.status === "green" ? "50%" : 3, background: k.status === "green" ? "#10b981" : "#ef4444", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: "#fff", fontWeight: 800 }}>{k.status === "green" ? "\u2713" : "\u2717"}</span>)}
+                  {isMobile ? (
+                    /* Mobile: stacked cards */
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      {weeklyTableData.map(m => (
+                        <div key={m.id} style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "14px" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }} onClick={() => setDrillPerson(m.id)}>
+                              <Av i={m.av} s={26} />
+                              <div><div style={{ fontSize: 13, fontWeight: 600 }}>{m.name}</div><div style={{ fontSize: 11, color: "#9ca3af" }}>{m.role}</div></div>
                             </div>
-                          ) : <span style={{ fontSize: 11, color: isLocked(wIdx) ? "#ef4444" : "#d1d5db" }}>{isLocked(wIdx) ? "Auto-red" : "Pending"}</span>}
+                            <div style={{ fontSize: 12, fontWeight: 600, color: m.dSumm.count >= m.dSumm.expected ? "#10b981" : m.dSumm.count >= Math.ceil(m.dSumm.expected / 2) ? "#f59e0b" : "#ef4444" }}>{m.dSumm.count}/{m.dSumm.expected} dailies</div>
+                          </div>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <div>
+                              {m.weekEntry?.kpis ? (
+                                <div style={{ display: "flex", gap: 3 }}>
+                                  {m.weekEntry.kpis.map((k, ki) => <span key={ki} style={{ width: 16, height: 16, borderRadius: k.status === "green" ? "50%" : 3, background: k.status === "green" ? "#10b981" : "#ef4444", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: "#fff", fontWeight: 800 }}>{k.status === "green" ? "\u2713" : "\u2717"}</span>)}
+                                </div>
+                              ) : <span style={{ fontSize: 11, color: isLocked(wIdx) ? "#ef4444" : "#d1d5db" }}>{isLocked(wIdx) ? "Auto-red" : "Pending"}</span>}
+                            </div>
+                            <InlineCmt existingText={cmt[`${m.id}:${wk.id}`]?.text} onSave={(txt) => saveWeeklyCmt(m.id, txt)} />
+                          </div>
                         </div>
-                        <div style={{ textAlign: "center", fontSize: 12, fontWeight: 600, color: m.dSumm.count >= m.dSumm.expected ? "#10b981" : m.dSumm.count >= Math.ceil(m.dSumm.expected / 2) ? "#f59e0b" : "#ef4444" }}>{m.dSumm.count}/{m.dSumm.expected}</div>
-                        <div style={{ textAlign: "right" }}>
-                          <InlineCmt existingText={cmt[`${m.id}:${wk.id}`]?.text} onSave={(txt) => saveWeeklyCmt(m.id, txt)} />
-                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    /* Desktop: grid table */
+                    <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", overflow: "hidden" }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 100px 60px 100px", padding: "10px 16px", background: "#f9fafb", borderBottom: "1px solid #e5e7eb", fontSize: 11, color: "#9ca3af", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                        <div>Person</div><div style={{ textAlign: "center" }}>KPI Status</div><div style={{ textAlign: "center" }}>Dailies</div><div style={{ textAlign: "right" }}>Action</div>
                       </div>
-                    ))}
-                  </div>
+                      {weeklyTableData.map(m => (
+                        <div key={m.id} style={{ display: "grid", gridTemplateColumns: "1fr 100px 60px 100px", padding: "12px 16px", borderBottom: "1px solid #f3f4f6", alignItems: "center" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }} onClick={() => setDrillPerson(m.id)}>
+                            <Av i={m.av} s={26} />
+                            <div><div style={{ fontSize: 13, fontWeight: 600 }}>{m.name}</div><div style={{ fontSize: 11, color: "#9ca3af" }}>{m.role}</div></div>
+                          </div>
+                          <div style={{ textAlign: "center" }}>
+                            {m.weekEntry?.kpis ? (
+                              <div style={{ display: "flex", gap: 3, justifyContent: "center" }}>
+                                {m.weekEntry.kpis.map((k, ki) => <span key={ki} style={{ width: 16, height: 16, borderRadius: k.status === "green" ? "50%" : 3, background: k.status === "green" ? "#10b981" : "#ef4444", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: "#fff", fontWeight: 800 }}>{k.status === "green" ? "\u2713" : "\u2717"}</span>)}
+                              </div>
+                            ) : <span style={{ fontSize: 11, color: isLocked(wIdx) ? "#ef4444" : "#d1d5db" }}>{isLocked(wIdx) ? "Auto-red" : "Pending"}</span>}
+                          </div>
+                          <div style={{ textAlign: "center", fontSize: 12, fontWeight: 600, color: m.dSumm.count >= m.dSumm.expected ? "#10b981" : m.dSumm.count >= Math.ceil(m.dSumm.expected / 2) ? "#f59e0b" : "#ef4444" }}>{m.dSumm.count}/{m.dSumm.expected}</div>
+                          <div style={{ textAlign: "right" }}>
+                            <InlineCmt existingText={cmt[`${m.id}:${wk.id}`]?.text} onSave={(txt) => saveWeeklyCmt(m.id, txt)} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </>
               )}
 
               {/* ═══ HEATMAP ═══ */}
               {view === "heatmap" && (
                 <>
-                  <h1 style={{ fontSize: 20, fontWeight: 700, margin: "0 0 16px", letterSpacing: -0.3 }}>Heatmap</h1>
-                  <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: 20, overflow: "auto" }}>
-                    <div style={{ display: "grid", gridTemplateColumns: `140px repeat(${vw.length},1fr)`, gap: 3, alignItems: "center" }}>
+                  <h1 style={{ fontSize: isMobile ? 18 : 20, fontWeight: 700, margin: "0 0 16px", letterSpacing: -0.3 }}>Heatmap</h1>
+                  <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: isMobile ? 12 : 20, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: `${isMobile ? 100 : 140}px repeat(${vw.length},1fr)`, gap: 3, alignItems: "center", minWidth: isMobile ? Math.max(400, 100 + vw.length * 44) : undefined }}>
                       <div />
                       {vw.map((w, i) => <div key={w.id} title={w.range} style={{ fontSize: 10, color: vs + i === wIdx ? "#111" : "#9ca3af", fontWeight: vs + i === wIdx ? 700 : 400, textAlign: "center" }}>{w.label}</div>)}
                       {filteredMembers.map(m => (
@@ -1854,13 +1932,13 @@ function CeoPasswordChange({ cfg, saveCfg }) {
 }
 
 // ─── CEO Daily Card ───────────────────────────────────────
-function DailyCardCeo({ entry: e, date, tz, onDrill, saveCmt, nudge, copied }) {
+function DailyCardCeo({ entry: e, date, tz, onDrill, saveCmt, nudge, copied, isMobile }) {
   const [cmtOpen, setCmtOpen] = useState(false);
   const [cmtText, setCmtText] = useState(e.dailyCmt?.text || "");
   const resolved = e.stuckThread?.some(t => t.from === "ceo");
 
   if (e.isPto) return (
-    <div style={{ background: "#fafafe", borderRadius: 12, border: "1px solid #e5e7eb", padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", opacity: 0.7 }}>
+    <div style={{ background: "#fafafe", borderRadius: 12, border: "1px solid #e5e7eb", padding: isMobile ? "12px 14px" : "14px 18px", display: "flex", alignItems: isMobile ? "flex-start" : "center", flexDirection: isMobile ? "column" : "row", justifyContent: "space-between", opacity: 0.7, gap: isMobile ? 6 : 0 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <Av i={e.av} s={28} />
         <div><span style={{ fontSize: 13, fontWeight: 600, cursor: "pointer", textDecoration: "underline", textDecorationColor: "#e5e7eb", textUnderlineOffset: 2 }} onClick={onDrill}>{e.name}</span><span style={{ fontSize: 12, color: "#9ca3af", marginLeft: 6 }}>{e.role}</span></div>
@@ -1870,8 +1948,8 @@ function DailyCardCeo({ entry: e, date, tz, onDrill, saveCmt, nudge, copied }) {
   );
 
   return (
-    <div style={{ background: "#fff", borderRadius: 12, border: "1px solid", borderColor: e.daily?.stuck && !resolved ? "#fecaca" : "#e5e7eb", padding: "16px 18px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: e.daily ? 12 : 0 }}>
+    <div style={{ background: "#fff", borderRadius: 12, border: "1px solid", borderColor: e.daily?.stuck && !resolved ? "#fecaca" : "#e5e7eb", padding: isMobile ? "14px" : "16px 18px" }}>
+      <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", justifyContent: "space-between", alignItems: isMobile ? "flex-start" : "center", marginBottom: e.daily ? 12 : 0, gap: isMobile ? 6 : 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <Av i={e.av} s={28} />
           <div>
@@ -1880,11 +1958,11 @@ function DailyCardCeo({ entry: e, date, tz, onDrill, saveCmt, nudge, copied }) {
           </div>
         </div>
         {!e.daily ? (
-          <button onClick={() => nudge(e)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, opacity: copied === e.id ? 1 : 0.4 }}>
+          <button onClick={() => nudge(e)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, opacity: copied === e.id ? 1 : 0.4, marginLeft: isMobile ? 38 : 0 }}>
             {copied === e.id ? "\u2713 Copied" : "\ud83d\udd14 Nudge"}
           </button>
         ) : (
-          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginLeft: isMobile ? 38 : 0 }}>
             {e.daily.edited && <EditedBadge />}
             {isLate(date, e.daily.at, tz) && <LateBadge />}
             {e.daily.stuck && !resolved && <StuckBadge />}
